@@ -114,3 +114,24 @@ jobs:
         run: |
           configure.cmd --version
           if errorlevel 1 exit /b 1
+          install-agent.cmd --version
+          if errorlevel 1 exit /b 1
+
+      - name: cmd.exe shim honours AGENT_BRIDGE_PYTHON
+        shell: cmd
+        env:
+          AGENT_BRIDGE_PYTHON: C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe
+        run: |
+          configure.cmd --version
+          if errorlevel 1 exit /b 1
+
+      - name: Report detected Python
+        shell: pwsh
+        run: |
+          Write-Host "PATH entries containing python:"
+          ($env:PATH -split ';') | Where-Object { $_ -match 'python' } | ForEach-Object { Write-Host "  $_" }
+          Write-Host "Get-Command results:"
+          foreach ($n in @('py','python3','python')) {
+            $c = Get-Command $n -ErrorAction SilentlyContinue
+            if ($c) { Write-Host "  $n -> $($c.Source)" } else { Write-Host "  $n -> (missing)" }
+          }

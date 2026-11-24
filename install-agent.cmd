@@ -1,6 +1,28 @@
 @echo off
 rem Agent Bridge - coding agent installer (cmd.exe shim).
-rem Delegates to install-agent.ps1 so there is a single source of truth.
+rem
+rem Runs the Python entry point directly so cmd users do not pay for a PowerShell
+rem launch. Falls back to install-agent.ps1 (which also knows about the 'py -3'
+rem launcher) when no Python is on PATH.
 setlocal
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-agent.ps1" %*
+set "SCRIPT_DIR=%~dp0"
+set "AB_PY="
+
+for %%P in (python.exe python3.exe) do (
+    if not defined AB_PY (
+        where %%P >nul 2>nul && set "AB_PY=%%P"
+    )
+)
+
+if not defined AB_PY goto :use_powershell
+
+"%AB_PY%" "%SCRIPT_DIR%lib\install_agent.py" %*
+goto :done
+
+:use_powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%install-agent.ps1" %*
+
+:done
+rem %ERRORLEVEL% must be read here, outside any parenthesised block, or it is
+rem expanded when the block is parsed instead of after Python runs.
 exit /b %ERRORLEVEL%

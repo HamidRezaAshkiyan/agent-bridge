@@ -29,6 +29,21 @@ if (-not $python) {
     Write-Host "Error: Python 3.9+ is required to run Agent Bridge." -ForegroundColor Red
     Write-Host "Install it with:  winget install --id Python.Python.3.12 -e" -ForegroundColor Yellow
     Write-Host "or download from: https://www.python.org/downloads/windows/" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Diagnostics:" -ForegroundColor Yellow
+    foreach ($candidate in @('py', 'python3', 'python')) {
+        $found = Get-Command $candidate -ErrorAction SilentlyContinue
+        if ($found) {
+            Write-Host ("  found '{0}' at {1}" -f $candidate, $found.Source)
+            $ver = Invoke-PythonProbe -Exe $candidate -Prefix @() -Code 'import sys; print(sys.version)'
+            if ($ver) { Write-Host ("    version: {0}" -f "$ver".Trim()) }
+            else { Write-Host "    could not execute it (blocked, or not a real interpreter)" }
+        }
+        else {
+            Write-Host ("  '{0}' not on PATH" -f $candidate)
+        }
+    }
+    Write-Host "  Tip: set AGENT_BRIDGE_PYTHON to a python.exe path to skip detection."
     exit 1
 }
 
