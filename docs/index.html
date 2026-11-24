@@ -38,7 +38,7 @@
     <section class="hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <div class="pill">Zero Dependencies • Bash + Python 3 • macOS / Linux / WSL</div>
+          <div class="pill">Zero Dependencies • Python 3 • macOS / Linux / Windows</div>
           <h1>Wire <span class="gradient-text">Metis, AvalAI &amp; Custom APIs</span> into Every Coding Agent.</h1>
           <p class="lead">
             Stop hand-editing JSON, TOML, and YAML files across a dozen tools. Agent Bridge installs your preferred CLI &amp; GUI coding agents and configures them safely in one interactive wizard — with live API checks, backups, and Claude/ChatGPT Desktop bridges.
@@ -46,8 +46,9 @@
 
           <div class="quickstart-box">
             <div class="qs-tabs" role="tablist">
-              <button class="qs-tab active" data-cmd="curl -fsSL https://raw.githubusercontent.com/HamidRezaAshkiyan/agent-bridge/main/bootstrap.sh | bash">Configure Provider</button>
-              <button class="qs-tab" data-cmd="curl -fsSL https://raw.githubusercontent.com/HamidRezaAshkiyan/agent-bridge/main/bootstrap.sh | bash -s -- install">Install Coding Agent</button>
+              <button class="qs-tab active" data-cmd="curl -fsSL https://raw.githubusercontent.com/HamidRezaAshkiyan/agent-bridge/main/bootstrap.sh | bash">macOS / Linux</button>
+              <button class="qs-tab" data-cmd="irm https://raw.githubusercontent.com/HamidRezaAshkiyan/agent-bridge/main/bootstrap.ps1 | iex">Windows (PowerShell)</button>
+              <button class="qs-tab" data-cmd="curl -fsSL https://raw.githubusercontent.com/HamidRezaAshkiyan/agent-bridge/main/bootstrap.sh | bash -s -- install">Install Agent</button>
               <button class="qs-tab" data-cmd="git clone https://github.com/HamidRezaAshkiyan/agent-bridge.git && cd agent-bridge && ./configure.sh">Git Clone</button>
             </div>
             <div class="qs-cmd-row">
@@ -137,7 +138,7 @@
           <article class="card">
             <div class="card-icon">📦</div>
             <h3>All-in-One Agent Installer</h3>
-            <p><code>./install-agent.sh</code> detects Homebrew, npm, pnpm, bun, uv, pipx, and curl, installs your chosen CLI or GUI coding agent, and hands off directly to <code>./configure.sh</code>.</p>
+            <p><code>./install-agent.sh</code> / <code>.\install-agent.ps1</code> detects Homebrew, winget, Scoop, Chocolatey, npm, pnpm, bun, uv, pipx, and curl, installs your chosen agent, and hands off directly to the configurator.</p>
           </article>
         </div>
       </div>
@@ -243,7 +244,7 @@
             <ul class="check-list">
               <li><strong>MCP Model Bridge (<code>lib/mcp_model_bridge.py</code>):</strong> Auto-registered in <code>claude_desktop_config.json</code>. Call <code>ask_custom_model</code> and <code>list_custom_models</code> directly from any Claude Desktop chat.</li>
               <li><strong>Developer Mode Third-Party Inference:</strong> Automatically enables <code>allowDevTools: true</code> in <code>developer_settings.json</code> so you can point Claude Desktop to Metis, AvalAI, or our local proxy.</li>
-              <li><strong>Local Anthropic ↔ OpenAI Proxy (<code>lib/desktop_proxy.py</code>):</strong> Run <code>~/.agent-bridge/start-proxy.sh</code> on port <code>4789</code> to translate OpenAI-only providers into Anthropic <code>/v1/messages</code>.</li>
+              <li><strong>Local Anthropic ↔ OpenAI Proxy (<code>lib/desktop_proxy.py</code>):</strong> Run <code>~/.agent-bridge/start-proxy.sh</code> (or <code>start-proxy.cmd</code> / <code>start-proxy.ps1</code> on Windows) on port <code>4789</code> to translate OpenAI-only providers into Anthropic <code>/v1/messages</code>.</li>
             </ul>
           </article>
 
@@ -271,7 +272,7 @@
           <div class="flow-step card">
             <div class="step-num">01</div>
             <h3>Detect &amp; Browse</h3>
-            <p>Scans <code>brew</code>, <code>npm</code>, <code>pnpm</code>, <code>bun</code>, <code>uv</code>, <code>pipx</code>, and <code>curl</code>, showing live installed status across 17 agents.</p>
+            <p>Scans <code>brew</code>, <code>winget</code>, <code>scoop</code>, <code>choco</code>, <code>npm</code>, <code>pnpm</code>, <code>bun</code>, <code>uv</code>, <code>pipx</code>, and <code>curl</code>, showing live installed status across 17 agents.</p>
           </div>
           <div class="flow-step card">
             <div class="step-num">02</div>

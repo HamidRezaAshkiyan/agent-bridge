@@ -28,12 +28,17 @@ class InstallableAgent:
     config_agent_id: str  # Maps to lib/configurators.py agent ID (or "")
     binary_check: str = ""
     macos_app: str = ""
+    windows_paths: tuple[str, ...] = ()
     npm_pkg: str = ""
     brew_formula: str = ""
     brew_cask: str = ""
+    winget_id: str = ""
+    scoop_pkg: str = ""
+    choco_pkg: str = ""
     uv_tool: str = ""
     pip_pkg: str = ""
     curl_cmd: str = ""
+    ps_cmd: str = ""
     download_url: str = ""
 
 
@@ -48,6 +53,7 @@ CATALOG: list[InstallableAgent] = [
         binary_check="claude",
         npm_pkg="@anthropic-ai/claude-code",
         curl_cmd="curl -fsSL https://claude.ai/install.sh | bash",
+        ps_cmd='powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex"',
         download_url="https://docs.anthropic.com/en/docs/claude-code",
     ),
     InstallableAgent(
@@ -59,6 +65,8 @@ CATALOG: list[InstallableAgent] = [
         binary_check="opencode",
         brew_formula="opencode",
         npm_pkg="opencode-ai",
+        scoop_pkg="opencode",
+        choco_pkg="opencode",
         curl_cmd="curl -fsSL https://opencode.ai/install | bash",
         download_url="https://opencode.ai",
     ),
@@ -124,6 +132,7 @@ CATALOG: list[InstallableAgent] = [
         summary="Native desktop GUI for OpenCode",
         config_agent_id="opencode-desktop",
         macos_app="/Applications/OpenCode.app",
+        windows_paths=("%LOCALAPPDATA%\\OpenCode\\OpenCode.exe",),
         brew_cask="opencode-desktop",
         download_url="https://opencode.ai/download",
     ),
@@ -135,7 +144,12 @@ CATALOG: list[InstallableAgent] = [
         config_agent_id="cursor",
         binary_check="cursor",
         macos_app="/Applications/Cursor.app",
+        windows_paths=(
+            "%LOCALAPPDATA%\\Programs\\cursor\\Cursor.exe",
+            "%PROGRAMFILES%\\cursor\\Cursor.exe",
+        ),
         brew_cask="cursor",
+        winget_id="Anysphere.Cursor",
         download_url="https://cursor.com/downloads",
     ),
     InstallableAgent(
@@ -146,7 +160,14 @@ CATALOG: list[InstallableAgent] = [
         config_agent_id="vscode-copilot",
         binary_check="code",
         macos_app="/Applications/Visual Studio Code.app",
+        windows_paths=(
+            "%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe",
+            "%PROGRAMFILES%\\Microsoft VS Code\\Code.exe",
+        ),
         brew_cask="visual-studio-code",
+        winget_id="Microsoft.VisualStudioCode",
+        scoop_pkg="vscode",
+        choco_pkg="vscode",
         download_url="https://code.visualstudio.com/download",
     ),
     InstallableAgent(
@@ -157,7 +178,9 @@ CATALOG: list[InstallableAgent] = [
         config_agent_id="zed",
         binary_check="zed",
         macos_app="/Applications/Zed.app",
+        windows_paths=("%LOCALAPPDATA%\\Programs\\Zed\\Zed.exe",),
         brew_cask="zed",
+        winget_id="ZedIndustries.Zed",
         curl_cmd="curl -f https://zed.dev/install.sh | sh",
         download_url="https://zed.dev/download",
     ),
@@ -168,7 +191,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Agentic IDE by Codeium",
         config_agent_id="shell-env",
         macos_app="/Applications/Windsurf.app",
+        windows_paths=("%LOCALAPPDATA%\\Programs\\Windsurf\\Windsurf.exe",),
         brew_cask="windsurf",
+        winget_id="Codeium.Windsurf",
         download_url="https://codeium.com/windsurf/download",
     ),
     InstallableAgent(
@@ -178,7 +203,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Anthropic desktop app (+ Agent Bridge MCP & Third-Party Inference)",
         config_agent_id="claude-desktop",
         macos_app="/Applications/Claude.app",
+        windows_paths=("%LOCALAPPDATA%\\AnthropicClaude\\claude.exe",),
         brew_cask="claude",
+        winget_id="Anthropic.Claude",
         download_url="https://claude.ai/download",
     ),
     InstallableAgent(
@@ -199,7 +226,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Beautiful desktop AI client with 100% native custom Base URL & API key",
         config_agent_id="chatgpt-desktop",
         macos_app="/Applications/Cherry Studio.app",
+        windows_paths=("%LOCALAPPDATA%\\Programs\\Cherry Studio\\Cherry Studio.exe",),
         brew_cask="cherry-studio",
+        winget_id="KangfenMao.CherryStudio",
         download_url="https://cherry-ai.com/download",
     ),
     InstallableAgent(
@@ -209,7 +238,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Cross-platform desktop GUI for Metis, AvalAI, OpenAI & Claude APIs",
         config_agent_id="chatgpt-desktop",
         macos_app="/Applications/chatbox.app",
+        windows_paths=("%LOCALAPPDATA%\\Programs\\chatbox\\Chatbox.exe",),
         brew_cask="chatbox",
+        winget_id="Bin-Huang.Chatbox",
         download_url="https://chatboxai.app",
     ),
     InstallableAgent(
@@ -219,7 +250,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Offline-first ChatGPT alternative supporting custom remote APIs",
         config_agent_id="chatgpt-desktop",
         macos_app="/Applications/Jan.app",
+        windows_paths=("%LOCALAPPDATA%\\Programs\\jan\\Jan.exe",),
         brew_cask="jan",
+        winget_id="Jan.Jan",
         download_url="https://jan.ai",
     ),
 ]
@@ -233,61 +266,112 @@ def detect_env() -> dict[str, bool | str]:
     return {
         "os": os_id,
         "brew": shutil.which("brew") is not None,
+        "winget": shutil.which("winget") is not None,
+        "scoop": shutil.which("scoop") is not None,
+        "choco": shutil.which("choco") is not None,
         "npm": shutil.which("npm") is not None,
         "pnpm": shutil.which("pnpm") is not None,
         "bun": shutil.which("bun") is not None,
         "uv": shutil.which("uv") is not None,
         "pipx": shutil.which("pipx") is not None,
         "pip3": shutil.which("pip3") is not None,
+        "pip": shutil.which("pip") is not None,
         "curl": shutil.which("curl") is not None,
+        "powershell": (shutil.which("pwsh") is not None or shutil.which("powershell") is not None),
     }
+
+
+def _expand_windows_path(pattern: str) -> Path:
+    expanded = os.path.expandvars(pattern)
+    # On non-Windows or if %VAR% wasn't expanded, manually resolve common Windows vars
+    for var in ("LOCALAPPDATA", "APPDATA", "PROGRAMFILES", "USERPROFILE"):
+        token = f"%{var}%"
+        if token in expanded and os.environ.get(var):
+            expanded = expanded.replace(token, os.environ[var])
+    return Path(expanded.replace("\\", os.sep))
 
 
 def is_installed(agent: InstallableAgent) -> bool:
     if agent.binary_check and shutil.which(agent.binary_check):
         return True
-    if agent.macos_app and Path(agent.macos_app).exists():
+    sys_name = platform.system().lower()
+    if sys_name == "darwin" and agent.macos_app and Path(agent.macos_app).exists():
         return True
+    if sys_name == "windows" and agent.windows_paths:
+        for raw_path in agent.windows_paths:
+            if _expand_windows_path(raw_path).exists():
+                return True
     return False
 
 
 def choose_install_command(agent: InstallableAgent, env: dict[str, bool | str]) -> tuple[str, str]:
     """Return (method_label, shell_command) for the best available package manager."""
     os_id = env["os"]
-    if os_id == "macos" and env["brew"]:
+
+    if os_id == "macos" and env.get("brew"):
         if agent.brew_cask:
             return ("Homebrew Cask", f"brew install --cask {agent.brew_cask}")
         if agent.brew_formula:
             return ("Homebrew", f"brew install {agent.brew_formula}")
+
+    if os_id == "windows" and agent.category in ("gui", "chat-gui"):
+        if agent.winget_id and env.get("winget"):
+            return (
+                "winget",
+                f"winget install --id {agent.winget_id} -e --accept-package-agreements --accept-source-agreements",
+            )
+        if agent.scoop_pkg and env.get("scoop"):
+            return ("Scoop", f"scoop install {agent.scoop_pkg}")
+        if agent.choco_pkg and env.get("choco"):
+            return ("Chocolatey", f"choco install {agent.choco_pkg} -y")
+
     if agent.npm_pkg:
-        if env["npm"]:
+        if env.get("npm"):
             return ("npm", f"npm install -g {agent.npm_pkg}")
-        if env["pnpm"]:
+        if env.get("pnpm"):
             return ("pnpm", f"pnpm add -g {agent.npm_pkg}")
-        if env["bun"]:
+        if env.get("bun"):
             return ("bun", f"bun add -g {agent.npm_pkg}")
-    if agent.uv_tool and env["uv"]:
+    if agent.uv_tool and env.get("uv"):
         return ("uv", f"uv tool install {agent.uv_tool}")
-    if agent.pip_pkg and env["pipx"]:
+    if agent.pip_pkg and env.get("pipx"):
         return ("pipx", f"pipx install {agent.pip_pkg}")
-    if agent.pip_pkg and env["pip3"]:
+    if agent.pip_pkg and env.get("pip3"):
         return ("pip3", f"pip3 install --user {agent.pip_pkg}")
-    if agent.curl_cmd and env["curl"]:
+    if agent.pip_pkg and env.get("pip"):
+        return ("pip", f"pip install --user {agent.pip_pkg}")
+
+    if os_id == "windows":
+        if agent.ps_cmd and env.get("powershell"):
+            return ("Official PowerShell Installer", agent.ps_cmd)
+        if agent.winget_id and env.get("winget"):
+            return (
+                "winget",
+                f"winget install --id {agent.winget_id} -e --accept-package-agreements --accept-source-agreements",
+            )
+        if agent.scoop_pkg and env.get("scoop"):
+            return ("Scoop", f"scoop install {agent.scoop_pkg}")
+        if agent.choco_pkg and env.get("choco"):
+            return ("Chocolatey", f"choco install {agent.choco_pkg} -y")
+        return ("Manual Download", "")
+
+    if agent.curl_cmd and env.get("curl"):
         return ("Official Installer", agent.curl_cmd)
-    if agent.brew_formula and env["brew"]:
+    if agent.brew_formula and env.get("brew"):
         return ("Homebrew", f"brew install {agent.brew_formula}")
     return ("Manual Download", "")
 
 
 def build_parser() -> argparse.ArgumentParser:
+    prog_name = "install-agent.ps1" if os.name == "nt" else "install-agent.sh"
     p = argparse.ArgumentParser(
-        prog="install-agent.sh",
+        prog=prog_name,
         description="Install your preferred CLI or GUI coding agent and configure it with your custom AI provider.",
     )
     p.add_argument("--agents", help="Comma-separated agent IDs to install (skip interactive menu)")
     p.add_argument("--list", action="store_true", help="List available agents with install status and exit")
     p.add_argument("--dry-run", action="store_true", help="Show install commands without executing them")
-    p.add_argument("--no-configure", action="store_true", help="Skip offering to run configure.sh after installation")
+    p.add_argument("--no-configure", action="store_true", help="Skip offering to run configure after installation")
     p.add_argument("--version", action="version", version=f"agent-bridge {__version__}")
     return p
 
@@ -320,7 +404,11 @@ def main(argv: list[str] | None = None) -> int:
         "Install CLI & GUI coding agents, then wire them up to your custom API key",
     )
 
-    tools_present = [k for k in ("brew", "npm", "pnpm", "bun", "uv", "pipx", "curl") if env.get(k)]
+    tools_present = [
+        k
+        for k in ("winget", "scoop", "choco", "brew", "npm", "pnpm", "bun", "uv", "pipx", "pip", "curl")
+        if env.get(k)
+    ]
     ui.info(f"Detected OS: {ui.C.BOLD}{env['os']}{ui.C.RESET} • Package managers: {', '.join(tools_present) or 'none'}")
 
     try:
@@ -387,9 +475,8 @@ def main(argv: list[str] | None = None) -> int:
                 if "shell-env" not in installed_config_targets:
                     installed_config_targets.append("shell-env")
                 cfg_script = REPO_ROOT / "lib" / "configure.py"
-                os.execv(
-                    sys.executable,
-                    [sys.executable, str(cfg_script), "--agents", ",".join(installed_config_targets)],
+                return subprocess.call(
+                    [sys.executable, str(cfg_script), "--agents", ",".join(installed_config_targets)]
                 )
 
         return 0

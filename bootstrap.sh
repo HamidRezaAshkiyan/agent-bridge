@@ -10,12 +10,15 @@ INSTALL_DIR="${AGENT_BRIDGE_HOME:-$HOME/.agent-bridge/repo}"
 MODE="${1:-configure}"
 shift || true
 
-for bin in git python3; do
-  if ! command -v "$bin" >/dev/null 2>&1; then
-    echo "Error: '$bin' is required to run Agent Bridge." >&2
-    exit 1
-  fi
-done
+if ! command -v git >/dev/null 2>&1; then
+  echo "Error: 'git' is required to run Agent Bridge." >&2
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1 && ! command -v py >/dev/null 2>&1; then
+  echo "Error: Python 3.8+ is required to run Agent Bridge." >&2
+  exit 1
+fi
 
 mkdir -p "$(dirname "$INSTALL_DIR")"
 if [ -d "$INSTALL_DIR/.git" ]; then

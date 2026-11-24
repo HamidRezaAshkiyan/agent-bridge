@@ -41,7 +41,7 @@ def call_chat_completion(prompt: str, model: str = "", system: str = "", tempera
     api_key = cfg.get("api_key", "")
     chosen_model = model or cfg.get("default_model", "gpt-4o")
     if not base_url:
-        return "Error: No custom provider configured. Run ./configure.sh to set one up."
+        return "Error: No custom provider configured. Run Agent Bridge (./configure.sh or .\\configure.ps1) to set one up."
 
     messages: list[dict[str, str]] = []
     if system:
@@ -206,6 +206,13 @@ def handle_request(req: dict[str, Any]) -> None:
 
 
 def main() -> int:
+    if os.name == "nt":
+        for _stream in (sys.stdin, sys.stdout, sys.stderr):
+            if hasattr(_stream, "reconfigure"):
+                try:
+                    _stream.reconfigure(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
     for line in sys.stdin:
         line = line.strip()
         if not line:

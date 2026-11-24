@@ -8,8 +8,48 @@ import shutil
 import sys
 from typing import Iterable, Sequence
 
+# Ensure UTF-8 console output on Windows so Unicode box-drawing & icons never fail
+if os.name == "nt":
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+def _enable_windows_vt_mode() -> bool:
+    """Enable ANSI/VT100 escape processing on Windows 10+ consoles."""
+    if os.name != "nt":
+        return True
+    if os.environ.get("WT_SESSION") or os.environ.get("ANSICON") or os.environ.get("TERM_PROGRAM"):
+        # Modern terminals (Windows Terminal, VS Code, etc.) already support VT sequences,
+        # but enabling the console flag still ensures consistent behavior.
+        pass
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        std_output_handle = -11
+        enable_vt_processing = 0x0004
+        handle = kernel32.GetStdHandle(std_output_handle)
+        if handle in (0, -1):
+            return False
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        if not (mode.value & enable_vt_processing):
+            if not kernel32.SetConsoleMode(handle, mode.value | enable_vt_processing):
+                return False
+        return True
+    except Exception:
+        return False
+
+
+_VT_ENABLED = _enable_windows_vt_mode() if sys.stdout.isatty() else False
+
 # Detect ANSI color support
-NO_COLOR = os.environ.get("NO_COLOR") is not None or not sys.stdout.isatty()
+NO_COLOR = os.environ.get("NO_COLOR") is not None or not sys.stdout.isatty() or (os.name == "nt" and not _VT_ENABLED)
 
 
 class C:
@@ -88,8 +128,52 @@ def mask_secret(secret: str) -> str:
     return f"{secret[:4]}{'•' * min(12, len(secret) - 8)}{secret[-4:]}"
 
 
+def _supports_raw_tui() -> bool:
+    """Return True if raw single-keypress TUI with ANSI cursor control is available."""
+    if not is_interactive():
+        return False
+    if os.name == "nt":
+        if not _VT_ENABLED:
+            return False
+        try:
+            import msvcrt  # noqa: F401
+            return True
+        except ImportError:
+            return False
+    try:
+        import termios  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _read_key() -> str:
-    """Read a single keypress from stdin (supports arrow keys, space, enter, q)."""
+    """Read a single keypress from stdin (supports arrow keys, space, enter, q on POSIX & Windows)."""
+    if os.name == "nt":
+        import msvcrt
+
+        ch = msvcrt.getwch()
+        if ch in ("\x00", "\xe0"):
+            ext = msvcrt.getwch()
+            if ext == "H":
+                return "UP"
+            if ext == "P":
+                return "DOWN"
+            if ext == "M":
+                return "RIGHT"
+            if ext == "K":
+                return "LEFT"
+            return "ESC"
+        if ch in ("\r", "\n"):
+            return "ENTER"
+        if ch == " ":
+            return "SPACE"
+        if ch == "\x1b":
+            return "ESC"
+        if ch == "\x03":
+            raise KeyboardInterrupt
+        return ch
+
     import termios
     import tty
 
@@ -133,12 +217,7 @@ def select_one(
     if not items:
         raise ValueError("select_one requires at least one item")
 
-    if not is_interactive():
-        return _select_one_fallback(prompt, items, default_index)
-
-    try:
-        import termios  # noqa: F401
-    except ImportError:
+    if not _supports_raw_tui():
         return _select_one_fallback(prompt, items, default_index)
 
     idx = max(0, min(default_index, len(items) - 1))
@@ -219,12 +298,7 @@ def select_many(
 
     selected: set[str] = set(preselected)
 
-    if not is_interactive():
-        return _select_many_fallback(prompt, items, selected)
-
-    try:
-        import termios  # noqa: F401
-    except ImportError:
+    if not _supports_raw_tui():
         return _select_many_fallback(prompt, items, selected)
 
     idx = 0

@@ -253,6 +253,13 @@ def make_handler(cfg: dict[str, Any]) -> type[BaseHTTPRequestHandler]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if os.name == "nt":
+        for _stream in (sys.stdout, sys.stderr):
+            if hasattr(_stream, "reconfigure"):
+                try:
+                    _stream.reconfigure(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
     parser = argparse.ArgumentParser(description="Agent Bridge local AI gateway proxy")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH, help="Path to proxy.json")
     parser.add_argument("--host", default="", help="Bind host (default 127.0.0.1)")

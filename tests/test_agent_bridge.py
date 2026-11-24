@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 import urllib.request
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -23,20 +24,31 @@ from lib.desktop_proxy import (
     make_handler,
     openai_to_anthropic_response,
 )
+from lib.install_agent import CATALOG_MAP, choose_install_command, is_installed
 from lib.providers import PROVIDERS, ResolvedProvider
 from http.server import ThreadingHTTPServer
 
 
 class TestAgentBridge(unittest.TestCase):
     def setUp(self) -> None:
-        self._orig_home = os.environ.get("HOME")
+        self._env_backup = {
+            k: os.environ.get(k)
+            for k in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "AGENT_BRIDGE_NO_WINREG")
+        }
         self._tmpdir = tempfile.TemporaryDirectory()
-        os.environ["HOME"] = self._tmpdir.name
         self.home = Path(self._tmpdir.name)
+        os.environ["HOME"] = str(self.home)
+        os.environ["USERPROFILE"] = str(self.home)
+        os.environ["APPDATA"] = str(self.home / "AppData" / "Roaming")
+        os.environ["LOCALAPPDATA"] = str(self.home / "AppData" / "Local")
+        os.environ["AGENT_BRIDGE_NO_WINREG"] = "1"
 
     def tearDown(self) -> None:
-        if self._orig_home is not None:
-            os.environ["HOME"] = self._orig_home
+        for k, v in self._env_backup.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         self._tmpdir.cleanup()
 
     def _make_provider(self, pid: str = "metis") -> ResolvedProvider:
@@ -120,9 +132,15 @@ class TestAgentBridge(unittest.TestCase):
     def test_non_interactive_cli_and_dry_run(self) -> None:
         env = dict(os.environ)
         env["HOME"] = str(self.home)
+        env["USERPROFILE"] = str(self.home)
+        cmd = (
+            [sys.executable, str(REPO_ROOT / "lib" / "configure.py")]
+            if os.name == "nt"
+            else [str(REPO_ROOT / "configure.sh")]
+        )
         proc = subprocess.run(
-            [
-                str(REPO_ROOT / "configure.sh"),
+            cmd
+            + [
                 "--non-interactive",
                 "--provider",
                 "metis",
@@ -141,13 +159,102 @@ class TestAgentBridge(unittest.TestCase):
         self.assertFalse((self.home / ".claude" / "settings.json").exists())
 
     def test_install_agent_list_and_dry_run(self) -> None:
+        cmd = (
+            [sys.executable, str(REPO_ROOT / "lib" / "install_agent.py")]
+            if os.name == "nt"
+            else [str(REPO_ROOT / "install-agent.sh")]
+        )
         proc = subprocess.run(
-            [str(REPO_ROOT / "install-agent.sh"), "--agents", "opencode-cli,pi", "--dry-run"],
+            cmd + ["--agents", "opencode-cli,pi", "--dry-run"],
             capture_output=True,
             text=True,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         self.assertIn("DRY RUN MODE", proc.stdout)
+
+    def test_windows_configurators_paths_powershell_and_proxy_launchers(self) -> None:
+        provider = self._make_provider("avalai")
+        backups = BackupManager(dry_run=False)
+        appdata = Path(os.environ["APPDATA"])
+
+        with mock.patch("platform.system", return_value="Windows"):
+            for agent in AGENTS:
+                res = run_configurator(agent.id, provider, backups)
+                self.assertTrue(res.ok, f"Windows configurator {agent.id} failed: {res.error}")
+                self.assertTrue(res.files_written, f"Windows configurator {agent.id} wrote no files")
+                for fpath in res.files_written:
+                    self.assertTrue(Path(fpath).exists(), f"Missing Windows output {fpath} for {agent.id}")
+
+        # Verify %APPDATA% paths on Windows
+        self.assertTrue((appdata / "Code" / "User" / "chatLanguageModels.json").exists())
+        cursor_settings = json.loads((appdata / "Cursor" / "User" / "settings.json").read_text(encoding="utf-8"))
+        self.assertIn("terminal.integrated.env.windows", cursor_settings)
+        self.assertEqual(cursor_settings["terminal.integrated.env.windows"]["OPENAI_BASE_URL"], "https://api.avalai.ir/v1")
+
+        self.assertTrue((appdata / "Claude" / "claude_desktop_config.json").exists())
+        self.assertTrue((appdata / "Claude" / "developer_settings.json").exists())
+        self.assertTrue((appdata / "Zed" / "settings.json").exists())
+        self.assertTrue((appdata / "Block" / "goose" / "config" / "config.yaml").exists())
+
+        # Verify Windows proxy launchers
+        self.assertTrue((self.home / ".agent-bridge" / "start-proxy.ps1").exists())
+        self.assertTrue((self.home / ".agent-bridge" / "start-proxy.cmd").exists())
+
+        # Verify PowerShell profile & env helper scripts
+        ps7_profile = self.home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
+        ps5_profile = self.home / "Documents" / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1"
+        self.assertTrue(ps7_profile.exists())
+        self.assertTrue(ps5_profile.exists())
+        ps_text = ps7_profile.read_text(encoding="utf-8")
+        self.assertIn("$env:AVALAI_API_KEY = 'sk-test-1234567890'", ps_text)
+        self.assertIn("Remove-Item Env:ANTHROPIC_API_KEY", ps_text)
+
+        env_cmd = (self.home / ".agent-bridge" / "env.cmd").read_text(encoding="utf-8")
+        self.assertIn('set "AVALAI_API_KEY=sk-test-1234567890"', env_cmd)
+
+    def test_windows_installer_package_managers_and_detection(self) -> None:
+        win_env: dict[str, bool | str] = {
+            "os": "windows",
+            "brew": False,
+            "winget": True,
+            "scoop": False,
+            "choco": False,
+            "npm": True,
+            "pnpm": False,
+            "bun": False,
+            "uv": False,
+            "pipx": False,
+            "pip3": False,
+            "pip": True,
+            "curl": True,
+            "powershell": True,
+        }
+        method, cmd = choose_install_command(CATALOG_MAP["vscode"], win_env)
+        self.assertEqual(method, "winget")
+        self.assertIn("Microsoft.VisualStudioCode", cmd)
+
+        method, cmd = choose_install_command(CATALOG_MAP["claude-desktop"], win_env)
+        self.assertEqual(method, "winget")
+        self.assertIn("Anthropic.Claude", cmd)
+
+        method, cmd = choose_install_command(CATALOG_MAP["aider"], win_env)
+        self.assertEqual(method, "pip")
+        self.assertIn("pip install --user aider-chat", cmd)
+
+        # Without npm, Claude Code should use official PowerShell installer (never curl | bash)
+        win_env_no_npm = dict(win_env, npm=False)
+        method, cmd = choose_install_command(CATALOG_MAP["claude-code"], win_env_no_npm)
+        self.assertEqual(method, "Official PowerShell Installer")
+        self.assertIn("install.ps1", cmd)
+        self.assertNotIn("install.sh", cmd)
+
+        # Verify Windows app path detection
+        fake_vscode = Path(os.environ["LOCALAPPDATA"]) / "Programs" / "Microsoft VS Code" / "Code.exe"
+        fake_vscode.parent.mkdir(parents=True, exist_ok=True)
+        fake_vscode.write_text("", encoding="utf-8")
+        with mock.patch("platform.system", return_value="Windows"), mock.patch("shutil.which", return_value=None):
+            self.assertTrue(is_installed(CATALOG_MAP["vscode"]))
+            self.assertFalse(is_installed(CATALOG_MAP["cursor"]))
 
     def test_desktop_proxy_health_and_translation(self) -> None:
         oa_req = anthropic_to_openai_request(

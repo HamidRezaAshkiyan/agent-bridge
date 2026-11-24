@@ -53,7 +53,7 @@ AGENTS: list[AgentMeta] = [
     AgentMeta("goose", "Goose (CLI & Desktop GUI)", "gui", "native", "Block's open-source AI agent (~/.config/goose/config.yaml)", "~/.config/goose/config.yaml"),
     AgentMeta("claude-desktop", "Claude Desktop (GUI — Proxy & MCP)", "desktop", "proxy+mcp", "Developer Third-Party Inference + local proxy + MCP model bridge", "Claude/claude_desktop_config.json"),
     AgentMeta("chatgpt-desktop", "ChatGPT Desktop & Desktop Proxy (GUI)", "desktop", "proxy+mcp", "Local OpenAI proxy + Codex provider + open desktop GUI guide", "~/.agent-bridge/proxy.json"),
-    AgentMeta("shell-env", "Shell Environment (~/.zshrc / ~/.bashrc)", "system", "native", "Managed env exports for all CLI tools & SDKs", "~/.zshrc / ~/.bashrc"),
+    AgentMeta("shell-env", "Shell Environment (Shell RC / PowerShell)", "system", "native", "Managed env exports for all CLI tools, GUI apps & SDKs", "~/.zshrc / ~/.bashrc / PowerShell $PROFILE"),
 ]
 
 AGENT_MAP: dict[str, AgentMeta] = {a.id: a for a in AGENTS}
@@ -104,6 +104,37 @@ def claude_desktop_dir() -> Path:
         appdata = Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming")))
         return appdata / "Claude"
     return home / ".config" / "Claude"
+
+
+def zed_config_path() -> Path:
+    home = Path.home()
+    if os_name() == "windows":
+        appdata = Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming")))
+        return appdata / "Zed" / "settings.json"
+    return home / ".config" / "zed" / "settings.json"
+
+
+def goose_config_path() -> Path:
+    home = Path.home()
+    if os_name() == "windows":
+        appdata = Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming")))
+        return appdata / "Block" / "goose" / "config" / "config.yaml"
+    return home / ".config" / "goose" / "config.yaml"
+
+
+def windows_powershell_profiles() -> list[Path]:
+    home = Path.home()
+    docs = home / "Documents"
+    return [
+        docs / "PowerShell" / "Microsoft.PowerShell_profile.ps1",
+        docs / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1",
+    ]
+
+
+def _proxy_start_hint() -> str:
+    if os_name() == "windows":
+        return r"%USERPROFILE%\.agent-bridge\start-proxy.cmd (or ~\.agent-bridge\start-proxy.ps1)"
+    return "~/.agent-bridge/start-proxy.sh"
 
 
 def detect_shell_rc() -> Path:
@@ -232,17 +263,42 @@ def _write_proxy_config(provider: ResolvedProvider, backups: BackupManager) -> l
     }
     _write_json(proxy_cfg_path, proxy_data, backups)
 
-    launcher_path = bridge_dir / "start-proxy.sh"
+    files = [str(proxy_cfg_path)]
     proxy_script = repo_root() / "lib" / "desktop_proxy.py"
+
+    launcher_path = bridge_dir / "start-proxy.sh"
     launcher = (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f'exec python3 "{proxy_script}" --config "{proxy_cfg_path}" "$@"\n'
     )
     _write_text(launcher_path, launcher, backups)
-    if not backups.dry_run and launcher_path.exists():
+    if not backups.dry_run and launcher_path.exists() and os.name != "nt":
         os.chmod(launcher_path, 0o755)
-    return [str(proxy_cfg_path), str(launcher_path)]
+    files.append(str(launcher_path))
+
+    if os_name() == "windows":
+        py_exe = sys.executable or "python"
+        ps1_path = bridge_dir / "start-proxy.ps1"
+        ps1_content = (
+            "$ErrorActionPreference = 'Stop'\n"
+            "$env:PYTHONUTF8 = '1'\n"
+            f'& "{py_exe}" "{proxy_script}" --config "{proxy_cfg_path}" @args\n'
+        )
+        _write_text(ps1_path, ps1_content, backups)
+        files.append(str(ps1_path))
+
+        cmd_path = bridge_dir / "start-proxy.cmd"
+        cmd_content = (
+            "@echo off\r\n"
+            "setlocal\r\n"
+            "set PYTHONUTF8=1\r\n"
+            f'"{py_exe}" "{proxy_script}" --config "{proxy_cfg_path}" %*\r\n'
+        )
+        _write_text(cmd_path, cmd_content, backups)
+        files.append(str(cmd_path))
+
+    return files
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +380,7 @@ def configure_claude_code(provider: ResolvedProvider, backups: BackupManager, gu
         notes.append(
             f"{provider.name} is OpenAI-only; Agent Bridge configured the local Anthropic↔OpenAI proxy at `{base_url}`."
         )
-        notes.append("Start the proxy before running Claude Code: `~/.agent-bridge/start-proxy.sh`")
+        notes.append(f"Start the proxy before running Claude Code: `{_proxy_start_hint()}`")
 
     env_block = data.get("env")
     if not isinstance(env_block, dict):
@@ -562,7 +618,12 @@ def configure_codex(provider: ResolvedProvider, backups: BackupManager, desktop:
     ]
     if desktop:
         files.extend(_write_proxy_config(provider, backups))
-        notes.append("On macOS GUI apps, run `launchctl setenv " + provider.env_var + " <key>` or restart from terminal so Codex Desktop sees the key.")
+        if os_name() == "macos":
+            notes.append("On macOS GUI apps, run `launchctl setenv " + provider.env_var + " <key>` or restart from terminal so Codex Desktop sees the key.")
+        elif os_name() == "windows":
+            notes.append(f"On Windows, select `shell-env` (or set User Environment Variable `{provider.env_var}`) and restart Codex Desktop.")
+        else:
+            notes.append(f"Make sure `{provider.env_var}` is exported in your graphical session environment before launching Codex Desktop.")
     return ConfigResult(agent_id, agent_name, True, files, notes)
 
 
@@ -582,7 +643,7 @@ def configure_aider(provider: ResolvedProvider, backups: BackupManager) -> Confi
 
 
 def configure_zed(provider: ResolvedProvider, backups: BackupManager) -> ConfigResult:
-    settings_path = Path.home() / ".config" / "zed" / "settings.json"
+    settings_path = zed_config_path()
     data = _read_json_safe(settings_path, {})
     if not isinstance(data, dict):
         data = {}
@@ -612,7 +673,7 @@ def configure_zed(provider: ResolvedProvider, backups: BackupManager) -> ConfigR
     _write_json(settings_path, data, backups)
 
     notes = [
-        f"Added `{provider.name}` under `language_models.openai_compatible` in `~/.config/zed/settings.json`.",
+        f"Added `{provider.name}` under `language_models.openai_compatible` in `{settings_path}`.",
         "Open Zed Agent Panel -> Settings and enter your API key once (or export `OPENAI_API_KEY`).",
     ]
     return ConfigResult("zed", AGENT_MAP["zed"].name, True, [str(settings_path)], notes)
@@ -650,7 +711,7 @@ def configure_continue(provider: ResolvedProvider, backups: BackupManager) -> Co
 
 
 def configure_goose(provider: ResolvedProvider, backups: BackupManager) -> ConfigResult:
-    cfg_path = Path.home() / ".config" / "goose" / "config.yaml"
+    cfg_path = goose_config_path()
     parsed = urlparse(provider.openai_base_url)
     host = f"{parsed.scheme}://{parsed.netloc}"
     base_path = (parsed.path.rstrip("/") + "/chat/completions").lstrip("/")
@@ -662,7 +723,7 @@ def configure_goose(provider: ResolvedProvider, backups: BackupManager) -> Confi
     )
     _upsert_managed_block(cfg_path, "agent-bridge-goose", body, backups)
     notes = [
-        f"Configured Goose CLI & Desktop (`OPENAI_HOST: {host}`, `OPENAI_BASE_PATH: {base_path}`).",
+        f"Configured Goose CLI & Desktop (`OPENAI_HOST: {host}`, `OPENAI_BASE_PATH: {base_path}`) in `{cfg_path}`.",
         "Make sure `OPENAI_API_KEY` is exported in your shell environment.",
     ]
     return ConfigResult("goose", AGENT_MAP["goose"].name, True, [str(cfg_path)], notes)
@@ -693,7 +754,7 @@ def configure_claude_desktop(provider: ResolvedProvider, backups: BackupManager)
     mcp_script = str(repo_root() / "lib" / "mcp_model_bridge.py")
     proxy_cfg = str(Path.home() / ".agent-bridge" / "proxy.json")
     servers["agent-bridge-models"] = {
-        "command": sys.executable or "python3",
+        "command": sys.executable or ("python" if os_name() == "windows" else "python3"),
         "args": [mcp_script],
         "env": {
             "AGENT_BRIDGE_MCP_CONFIG": proxy_cfg,
@@ -707,7 +768,7 @@ def configure_claude_desktop(provider: ResolvedProvider, backups: BackupManager)
     notes = [
         "1) MCP Model Bridge registered in `claude_desktop_config.json` (`ask_custom_model`, `list_custom_models`). Restart Claude Desktop to query your custom provider directly in any chat!",
         f"2) Developer Mode enabled (`developer_settings.json`). In Claude Desktop go to Developer -> Configure Third-Party Inference and set Base URL to `{inference_url}`.",
-        "3) If using an OpenAI-only provider or model remapping, run `~/.agent-bridge/start-proxy.sh` to start the local Anthropic↔OpenAI bridge on `http://127.0.0.1:4789`.",
+        f"3) If using an OpenAI-only provider or model remapping, run `{_proxy_start_hint()}` to start the local Anthropic↔OpenAI bridge on `http://127.0.0.1:4789`.",
     ]
     return ConfigResult("claude-desktop", AGENT_MAP["claude-desktop"].name, True, files, notes)
 
@@ -718,18 +779,20 @@ def configure_chatgpt_desktop(provider: ResolvedProvider, backups: BackupManager
     _upsert_codex_toml(toml_path, provider, backups)
     files.append(str(toml_path))
 
+    install_cmd_hint = r".\install-agent.ps1" if os_name() == "windows" else "./install-agent.sh"
+    proxy_hint = _proxy_start_hint()
     guide_path = Path.home() / ".agent-bridge" / "chatgpt-desktop-guide.txt"
     guide = (
         f"ChatGPT Desktop & Custom OpenAI Desktop Setup ({provider.name})\n"
         f"================================================================\n"
         f"Provider Base URL : {provider.openai_base_url}\n"
         f"Default Model     : {provider.model}\n"
-        f"Local Bridge Proxy: http://127.0.0.1:4789/v1  (run ~/.agent-bridge/start-proxy.sh)\n\n"
+        f"Local Bridge Proxy: http://127.0.0.1:4789/v1  (run {proxy_hint})\n\n"
         f"Important Note on Consumer ChatGPT Desktop:\n"
         f"- Official consumer ChatGPT Desktop hard-pins chatgpt.com endpoints.\n"
         f"- Developer / Codex Desktop builds read `~/.codex/config.toml` (already configured!).\n"
         f"- For a full native ChatGPT-style Desktop GUI with custom Base URL + API Key, install\n"
-        f"  Cherry Studio, Chatbox, or Jan via `./install-agent.sh` and point it to:\n"
+        f"  Cherry Studio, Chatbox, or Jan via `{install_cmd_hint}` and point it to:\n"
         f"    Base URL: {provider.openai_base_url}\n"
         f"    Model   : {provider.model}\n"
     )
@@ -738,13 +801,91 @@ def configure_chatgpt_desktop(provider: ResolvedProvider, backups: BackupManager
 
     notes = [
         "Configured `~/.codex/config.toml` for ChatGPT/Codex developer desktop builds.",
-        "Generated local OpenAI proxy (`~/.agent-bridge/start-proxy.sh`) on `http://127.0.0.1:4789/v1`.",
-        "Note: Standard consumer ChatGPT Desktop pins `chatgpt.com`. For a 100% native custom-API Desktop GUI, install Cherry Studio, Chatbox, or Jan via `./install-agent.sh`.",
+        f"Generated local OpenAI proxy (`{proxy_hint}`) on `http://127.0.0.1:4789/v1`.",
+        f"Note: Standard consumer ChatGPT Desktop pins `chatgpt.com`. For a 100% native custom-API Desktop GUI, install Cherry Studio, Chatbox, or Jan via `{install_cmd_hint}`.",
     ]
     return ConfigResult("chatgpt-desktop", AGENT_MAP["chatgpt-desktop"].name, True, files, notes)
 
 
+def _persist_windows_user_env(env_vars: dict[str, str], unset_vars: list[str]) -> bool:
+    """Persist user-level environment variables in HKCU\\Environment on native Windows."""
+    if os.name != "nt" or os.environ.get("AGENT_BRIDGE_NO_WINREG"):
+        return False
+    try:
+        import ctypes
+        import winreg  # type: ignore[import-not-found]
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as key:
+            for name, val in env_vars.items():
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, val)
+            for name in unset_vars:
+                try:
+                    winreg.DeleteValue(key, name)
+                except FileNotFoundError:
+                    pass
+        # Notify Windows Explorer / GUI apps of environment change
+        hwnd_broadcast = 0xFFFF
+        wm_settingchange = 0x001A
+        smto_abortifhung = 0x0002
+        ctypes.windll.user32.SendMessageTimeoutW(  # type: ignore[attr-defined]
+            hwnd_broadcast, wm_settingchange, 0, "Environment", smto_abortifhung, 1000, None
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _ps_quote(value: str) -> str:
+    """Single-quote a string safely for PowerShell."""
+    return "'" + value.replace("'", "''") + "'"
+
+
 def configure_shell_env(provider: ResolvedProvider, backups: BackupManager) -> ConfigResult:
+    if os_name() == "windows":
+        env_vars: dict[str, str] = {
+            "AGENT_BRIDGE_PROVIDER": provider.id,
+            provider.env_var: provider.effective_api_key,
+            "OPENAI_BASE_URL": provider.openai_base_url,
+            "OPENAI_API_KEY": provider.effective_api_key,
+        }
+        unset_vars: list[str] = []
+        if provider.anthropic_base_url:
+            env_vars["ANTHROPIC_BASE_URL"] = provider.anthropic_base_url
+            env_vars["ANTHROPIC_AUTH_TOKEN"] = provider.effective_api_key
+            unset_vars.append("ANTHROPIC_API_KEY")
+
+        ps_lines = [f"$env:{k} = {_ps_quote(v)}" for k, v in env_vars.items()]
+        for u in unset_vars:
+            ps_lines.append(f"Remove-Item Env:{u} -ErrorAction SilentlyContinue")
+        ps_body = "\n".join(ps_lines)
+
+        files: list[str] = []
+        for prof in windows_powershell_profiles():
+            _upsert_managed_block(prof, "agent-bridge", ps_body, backups)
+            files.append(str(prof))
+
+        bridge_dir = Path.home() / ".agent-bridge"
+        env_ps1 = bridge_dir / "env.ps1"
+        _write_text(env_ps1, ps_body + "\n", backups)
+        files.append(str(env_ps1))
+
+        cmd_lines = ["@echo off"] + [f'set "{k}={v}"' for k, v in env_vars.items()]
+        for u in unset_vars:
+            cmd_lines.append(f'set "{u}="')
+        env_cmd = bridge_dir / "env.cmd"
+        _write_text(env_cmd, "\r\n".join(cmd_lines) + "\r\n", backups)
+        files.append(str(env_cmd))
+
+        notes = [
+            "Updated managed `# >>> agent-bridge >>>` block in PowerShell 5.1 & PowerShell 7+ `$PROFILE` files.",
+            f"Generated helper scripts `{env_ps1}` and `{env_cmd}` for PowerShell and CMD sessions.",
+        ]
+        if not backups.dry_run and _persist_windows_user_env(env_vars, unset_vars):
+            notes.append("Persisted variables to Windows User Environment (`HKCU\\Environment`) for GUI apps (VS Code, Cursor, Zed, Codex Desktop).")
+        else:
+            notes.append("Open a new PowerShell window (or dot-source `~\\.agent-bridge\\env.ps1`) to activate.")
+        return ConfigResult("shell-env", AGENT_MAP["shell-env"].name, True, files, notes)
+
     rc_path = detect_shell_rc()
     lines = [
         f'export AGENT_BRIDGE_PROVIDER="{provider.id}"',

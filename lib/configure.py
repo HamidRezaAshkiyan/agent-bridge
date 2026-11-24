@@ -19,8 +19,9 @@ from lib.providers import PROVIDERS, ModelSpec, ResolvedProvider, test_provider_
 
 
 def build_parser() -> argparse.ArgumentParser:
+    prog_name = "configure.ps1" if os.name == "nt" else "configure.sh"
     p = argparse.ArgumentParser(
-        prog="configure.sh",
+        prog=prog_name,
         description="Configure Metis AI, AvalAI, OpenRouter, Liara, or custom AI providers across CLI & GUI coding agents.",
     )
     p.add_argument("--provider", choices=list(PROVIDERS.keys()), help="Provider preset ID")
@@ -293,7 +294,8 @@ def main(argv: list[str] | None = None) -> int:
         ui.section("Done")
         ui.success(f"Configured {ok_count}/{len(agent_ids)} target(s) for {provider.name}.")
         if not args.dry_run and backups.manifest:
-            ui.info(f"Backups saved to: {backups.session_dir} (restore anytime with `./configure.sh --restore`).")
+            restore_cmd = r".\configure.ps1 --restore" if os.name == "nt" else "./configure.sh --restore"
+            ui.info(f"Backups saved to: {backups.session_dir} (restore anytime with `{restore_cmd}`).")
         return 0 if ok_count == len(agent_ids) else 1
 
     except KeyboardInterrupt:
