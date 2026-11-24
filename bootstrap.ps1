@@ -65,7 +65,8 @@ $entry = if ($Mode -eq 'install') { 'install-agent.ps1' } else { 'configure.ps1'
 $entryPath = Join-Path $installDir $entry
 
 . (Join-Path $installDir 'scripts\args.ps1')
-$forwarded = ConvertFrom-AgentBridgeArgs -Arguments $Args -ListFlags @('--agents')
+# @() guards against the single-element result collapsing to a string (see configure.ps1).
+$forwarded = @(ConvertFrom-AgentBridgeArgs -Arguments $Args -ListFlags @('--agents'))
 
 Write-Host ""
 Write-Host ("Launching " + $entry) -ForegroundColor Green

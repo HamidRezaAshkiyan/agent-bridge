@@ -61,5 +61,7 @@ function ConvertFrom-AgentBridgeArgs {
         }
     }
 
+    # Callers must wrap the result in @(): a single-element array collapses to a string
+    # on output, and splatting a string enumerates its characters.
     return $normalised.ToArray()
 }

@@ -32,7 +32,9 @@ if (-not $python) {
     exit 1
 }
 
-$arguments = ConvertFrom-AgentBridgeArgs -Arguments $Args -ListFlags @('--agents')
+# Wrap in @() : a single-element return collapses to a plain string, and splatting a
+# string enumerates its characters ("- - l i s t ...") instead of passing one argument.
+$forwardArgs = @(ConvertFrom-AgentBridgeArgs -Arguments $Args -ListFlags @('--agents'))
 
-& $python (Join-Path $scriptDir 'lib\configure.py') @arguments
+& $python (Join-Path $scriptDir 'lib\configure.py') @forwardArgs
 exit $LASTEXITCODE
