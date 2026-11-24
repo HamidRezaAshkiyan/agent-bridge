@@ -7,22 +7,32 @@
 #
 #       ./configure.ps1 --agents opencode-cli,pi
 #
-#   reaches the script as @('--agents', 'opencode-cli', 'pi') - the comma is gone and
-#   argparse sees two positional tokens. Requiring quotes would be a papercut, so the
-#   list-valued flags are re-joined here before the arguments reach Python.
+#   does not arrive as the string "opencode-cli,pi". Depending on how the script is
+#   launched the value becomes either an array of tokens or a single space-joined
+#   token ("opencode-cli pi") - in both cases the comma is lost and argparse sees
+#   garbage. Requiring quotes would be a papercut, so the value of list-valued flags
+#   is re-normalised here into a comma-separated string before reaching Python.
+#
+#   Agent IDs and provider IDs never contain whitespace, so splitting on both commas
+#   and whitespace is unambiguous for the flags this applies to.
 
 function ConvertFrom-AgentBridgeArgs {
     <#
     .SYNOPSIS
-        Re-joins comma-separated list arguments that PowerShell split on parse.
+        Normalises list-valued flags that PowerShell split or space-joined.
 
     .DESCRIPTION
         For each flag in -ListFlags, every consecutive token that is not itself a
-        recognised flag is glued back together with commas and passed as one value.
-        Tokens that start with '-' are treated as the next flag.
+        recognised flag is collected, split on commas/whitespace, and re-joined with
+        commas as a single value. Tokens starting with '-' begin the next flag.
 
     .EXAMPLE
         ConvertFrom-AgentBridgeArgs -Arguments @('--agents','opencode-cli','pi','--dry-run')
+        # -> @('--agents','opencode-cli,pi','--dry-run')
+
+    .EXAMPLE
+        # The form PowerShell produces when the comma-array is stringified:
+        ConvertFrom-AgentBridgeArgs -Arguments @('--agents','opencode-cli pi','--dry-run')
         # -> @('--agents','opencode-cli,pi','--dry-run')
     #>
     param(
@@ -48,16 +58,18 @@ function ConvertFrom-AgentBridgeArgs {
         $normalised.Add($token)
         $index++
 
-        $values = New-Object System.Collections.Generic.List[string]
+        $items = New-Object System.Collections.Generic.List[string]
         while ($index -lt $Arguments.Count) {
             $candidate = $Arguments[$index]
             if ($candidate -like '-*') { break }
-            $values.Add($candidate)
+            foreach ($piece in ($candidate -split '[,\s]+')) {
+                if ($piece) { $items.Add($piece) }
+            }
             $index++
         }
 
-        if ($values.Count -gt 0) {
-            $normalised.Add(($values -join ','))
+        if ($items.Count -gt 0) {
+            $normalised.Add(($items -join ','))
         }
     }
 
