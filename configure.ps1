@@ -22,6 +22,7 @@ $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 . (Join-Path $scriptDir 'scripts\python-detect.ps1')
+. (Join-Path $scriptDir 'scripts\args.ps1')
 
 $python = Get-AgentBridgePython
 if (-not $python) {
@@ -31,5 +32,7 @@ if (-not $python) {
     exit 1
 }
 
-& $python (Join-Path $scriptDir 'lib\configure.py') @Args
+$arguments = ConvertFrom-AgentBridgeArgs -Arguments $Args -ListFlags @('--agents')
+
+& $python (Join-Path $scriptDir 'lib\configure.py') @arguments
 exit $LASTEXITCODE

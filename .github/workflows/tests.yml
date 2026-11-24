@@ -14,7 +14,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.9", "3.12"]
+        # 3.10+ is what setup-python provides on the current runner images.
+        python: ["3.10", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +39,7 @@ jobs:
           test -f configure.cmd
           test -f install-agent.cmd
           test -f scripts/python-detect.ps1
+          test -f scripts/args.ps1
 
   powershell:
     name: Windows / PowerShell entry points
@@ -57,7 +59,8 @@ jobs:
             "configure.ps1",
             "install-agent.ps1",
             "bootstrap.ps1",
-            "scripts/python-detect.ps1"
+            "scripts/python-detect.ps1",
+            "scripts/args.ps1"
           )
           $failed = 0
           foreach ($file in $files) {
@@ -89,11 +92,20 @@ jobs:
           ./configure.ps1 --non-interactive --provider metis --api-key sk-demo --agents all --dry-run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: install-agent.ps1 dry run
+      - name: install-agent.ps1 dry run (quoted list)
         shell: pwsh
         env:
           AGENT_BRIDGE_USER_HOME: ${{ runner.temp }}/ab-home
         run: |
+          ./install-agent.ps1 --agents "opencode-cli,pi" --dry-run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: install-agent.ps1 accepts an unquoted agent list
+        shell: pwsh
+        env:
+          AGENT_BRIDGE_USER_HOME: ${{ runner.temp }}/ab-home
+        run: |
+          # PowerShell splits the comma into separate arguments; the wrapper re-joins them.
           ./install-agent.ps1 --agents opencode-cli,pi --dry-run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

@@ -389,6 +389,7 @@ class TestWindowsSupport(unittest.TestCase):
             "configure.cmd",
             "install-agent.cmd",
             Path("scripts") / "python-detect.ps1",
+            Path("scripts") / "args.ps1",
         ):
             self.assertTrue((REPO_ROOT / name).is_file(), f"missing {name}")
 
@@ -400,6 +401,8 @@ class TestWindowsSupport(unittest.TestCase):
             body = (REPO_ROOT / ps1).read_text(encoding="utf-8")
             self.assertIn(module, body)
             self.assertIn("Get-AgentBridgePython", body)
+            # Unquoted `--agents a,b` is split by PowerShell; the wrapper must re-join it.
+            self.assertIn("ConvertFrom-AgentBridgeArgs", body)
 
     def test_install_catalog_covers_windows_targets(self) -> None:
         from lib.install_agent import CATALOG, choose_install_command
