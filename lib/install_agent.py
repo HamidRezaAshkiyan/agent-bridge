@@ -7,7 +7,6 @@ import argparse
 from dataclasses import dataclass
 import os
 from pathlib import Path
-import platform
 import shutil
 import subprocess
 import sys
@@ -16,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from lib import __version__, ui
+from lib import __version__, platform_support as plat, ui
 
 
 @dataclass
@@ -28,12 +27,14 @@ class InstallableAgent:
     config_agent_id: str  # Maps to lib/configurators.py agent ID (or "")
     binary_check: str = ""
     macos_app: str = ""
+    windows_app: str = ""
     npm_pkg: str = ""
     brew_formula: str = ""
     brew_cask: str = ""
     uv_tool: str = ""
     pip_pkg: str = ""
     curl_cmd: str = ""
+    winget_id: str = ""
     download_url: str = ""
 
 
@@ -48,6 +49,7 @@ CATALOG: list[InstallableAgent] = [
         binary_check="claude",
         npm_pkg="@anthropic-ai/claude-code",
         curl_cmd="curl -fsSL https://claude.ai/install.sh | bash",
+        winget_id="Anthropic.ClaudeCode",
         download_url="https://docs.anthropic.com/en/docs/claude-code",
     ),
     InstallableAgent(
@@ -60,6 +62,7 @@ CATALOG: list[InstallableAgent] = [
         brew_formula="opencode",
         npm_pkg="opencode-ai",
         curl_cmd="curl -fsSL https://opencode.ai/install | bash",
+        winget_id="Anomaly.OpenCode",
         download_url="https://opencode.ai",
     ),
     InstallableAgent(
@@ -81,6 +84,7 @@ CATALOG: list[InstallableAgent] = [
         binary_check="codex",
         npm_pkg="@openai/codex",
         brew_formula="codex",
+        winget_id="OpenAI.Codex",
         download_url="https://github.com/openai/codex",
     ),
     InstallableAgent(
@@ -114,6 +118,7 @@ CATALOG: list[InstallableAgent] = [
         binary_check="goose",
         brew_formula="block-goose-cli",
         curl_cmd="curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash",
+        winget_id="AgenticAIFoundation.gooseCLI",
         download_url="https://block.github.io/goose",
     ),
     # --- GUI IDEs & Desktop Coding Apps ---
@@ -124,7 +129,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Native desktop GUI for OpenCode",
         config_agent_id="opencode-desktop",
         macos_app="/Applications/OpenCode.app",
+        windows_app="%LOCALAPPDATA%\\Programs\\opencode\\opencode.exe",
         brew_cask="opencode-desktop",
+        winget_id="Anomaly.OpenCode.Desktop",
         download_url="https://opencode.ai/download",
     ),
     InstallableAgent(
@@ -135,7 +142,9 @@ CATALOG: list[InstallableAgent] = [
         config_agent_id="cursor",
         binary_check="cursor",
         macos_app="/Applications/Cursor.app",
+        windows_app="%LOCALAPPDATA%\\Programs\\cursor\\Cursor.exe",
         brew_cask="cursor",
+        winget_id="Anysphere.Cursor",
         download_url="https://cursor.com/downloads",
     ),
     InstallableAgent(
@@ -146,7 +155,9 @@ CATALOG: list[InstallableAgent] = [
         config_agent_id="vscode-copilot",
         binary_check="code",
         macos_app="/Applications/Visual Studio Code.app",
+        windows_app="%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe",
         brew_cask="visual-studio-code",
+        winget_id="Microsoft.VisualStudioCode",
         download_url="https://code.visualstudio.com/download",
     ),
     InstallableAgent(
@@ -157,8 +168,10 @@ CATALOG: list[InstallableAgent] = [
         config_agent_id="zed",
         binary_check="zed",
         macos_app="/Applications/Zed.app",
+        windows_app="%LOCALAPPDATA%\\Programs\\Zed\\zed.exe",
         brew_cask="zed",
         curl_cmd="curl -f https://zed.dev/install.sh | sh",
+        winget_id="ZedIndustries.Zed",
         download_url="https://zed.dev/download",
     ),
     InstallableAgent(
@@ -168,7 +181,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Agentic IDE by Codeium",
         config_agent_id="shell-env",
         macos_app="/Applications/Windsurf.app",
+        windows_app="%LOCALAPPDATA%\\Programs\\Windsurf\\Windsurf.exe",
         brew_cask="windsurf",
+        winget_id="Codeium.Windsurf",
         download_url="https://codeium.com/windsurf/download",
     ),
     InstallableAgent(
@@ -178,7 +193,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Anthropic desktop app (+ Agent Bridge MCP & Third-Party Inference)",
         config_agent_id="claude-desktop",
         macos_app="/Applications/Claude.app",
+        windows_app="%LOCALAPPDATA%\\AnthropicClaude\\claude.exe",
         brew_cask="claude",
+        winget_id="Anthropic.Claude",
         download_url="https://claude.ai/download",
     ),
     InstallableAgent(
@@ -188,7 +205,9 @@ CATALOG: list[InstallableAgent] = [
         summary="OpenAI desktop app",
         config_agent_id="chatgpt-desktop",
         macos_app="/Applications/ChatGPT.app",
+        windows_app="%LOCALAPPDATA%\\Programs\\ChatGPT\\ChatGPT.exe",
         brew_cask="chatgpt",
+        winget_id="OpenAI.ChatGPT",
         download_url="https://openai.com/chatgpt/desktop",
     ),
     # --- Native Custom-API Open-Source Desktop Chat GUIs ---
@@ -199,7 +218,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Beautiful desktop AI client with 100% native custom Base URL & API key",
         config_agent_id="chatgpt-desktop",
         macos_app="/Applications/Cherry Studio.app",
+        windows_app="%LOCALAPPDATA%\\Programs\\Cherry Studio\\Cherry Studio.exe",
         brew_cask="cherry-studio",
+        winget_id="kangfenmao.CherryStudio",
         download_url="https://cherry-ai.com/download",
     ),
     InstallableAgent(
@@ -209,7 +230,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Cross-platform desktop GUI for Metis, AvalAI, OpenAI & Claude APIs",
         config_agent_id="chatgpt-desktop",
         macos_app="/Applications/chatbox.app",
+        windows_app="%LOCALAPPDATA%\\Programs\\Chatbox\\Chatbox.exe",
         brew_cask="chatbox",
+        winget_id="Bin-Huang.Chatbox",
         download_url="https://chatboxai.app",
     ),
     InstallableAgent(
@@ -219,7 +242,9 @@ CATALOG: list[InstallableAgent] = [
         summary="Offline-first ChatGPT alternative supporting custom remote APIs",
         config_agent_id="chatgpt-desktop",
         macos_app="/Applications/Jan.app",
+        windows_app="%LOCALAPPDATA%\\Programs\\Jan\\Jan.exe",
         brew_cask="jan",
+        winget_id="Jan.Jan",
         download_url="https://jan.ai",
     ),
 ]
@@ -227,11 +252,27 @@ CATALOG: list[InstallableAgent] = [
 CATALOG_MAP = {a.id: a for a in CATALOG}
 
 
+def expand_windows_path(raw: str) -> Path | None:
+    """Expand a ``%VAR%``-style Windows app path into an absolute path."""
+    if not raw:
+        return None
+    expanded = os.path.expandvars(raw)
+    return Path(expanded)
+
+
+def app_installed(agent: InstallableAgent) -> bool:
+    """Check the OS-native application location for this agent."""
+    if plat.is_macos() and agent.macos_app:
+        return Path(agent.macos_app).exists()
+    if plat.is_windows() and agent.windows_app:
+        candidate = expand_windows_path(agent.windows_app)
+        return bool(candidate and candidate.exists())
+    return False
+
+
 def detect_env() -> dict[str, bool | str]:
-    sys_name = platform.system().lower()
-    os_id = "macos" if sys_name == "darwin" else ("windows" if sys_name == "windows" else "linux")
     return {
-        "os": os_id,
+        "os": plat.os_name(),
         "brew": shutil.which("brew") is not None,
         "npm": shutil.which("npm") is not None,
         "pnpm": shutil.which("pnpm") is not None,
@@ -240,25 +281,43 @@ def detect_env() -> dict[str, bool | str]:
         "pipx": shutil.which("pipx") is not None,
         "pip3": shutil.which("pip3") is not None,
         "curl": shutil.which("curl") is not None,
+        "winget": shutil.which("winget") is not None,
+        "scoop": shutil.which("scoop") is not None,
+        "choco": shutil.which("choco") is not None,
     }
 
 
 def is_installed(agent: InstallableAgent) -> bool:
     if agent.binary_check and shutil.which(agent.binary_check):
         return True
-    if agent.macos_app and Path(agent.macos_app).exists():
-        return True
-    return False
+    return app_installed(agent)
 
 
 def choose_install_command(agent: InstallableAgent, env: dict[str, bool | str]) -> tuple[str, str]:
     """Return (method_label, shell_command) for the best available package manager."""
     os_id = env["os"]
+
     if os_id == "macos" and env["brew"]:
         if agent.brew_cask:
             return ("Homebrew Cask", f"brew install --cask {agent.brew_cask}")
         if agent.brew_formula:
             return ("Homebrew", f"brew install {agent.brew_formula}")
+
+    if os_id == "windows":
+        # winget is present on Windows 10 1809+ / Windows 11 by default and handles
+        # both CLIs and desktop apps, so it is preferred over npm for GUI targets.
+        if agent.winget_id and env["winget"]:
+            return ("winget", f"winget install --id {agent.winget_id} -e --accept-source-agreements --accept-package-agreements")
+        if agent.npm_pkg and env["npm"]:
+            return ("npm", f"npm install -g {agent.npm_pkg}")
+        if agent.pip_pkg and env["pipx"]:
+            return ("pipx", f"pipx install {agent.pip_pkg}")
+        if agent.pip_pkg and env["pip3"]:
+            return ("pip3", f"pip3 install --user {agent.pip_pkg}")
+        if agent.uv_tool and env["uv"]:
+            return ("uv", f"uv tool install {agent.uv_tool}")
+        return ("Manual Download", "")
+
     if agent.npm_pkg:
         if env["npm"]:
             return ("npm", f"npm install -g {agent.npm_pkg}")
@@ -280,14 +339,15 @@ def choose_install_command(agent: InstallableAgent, env: dict[str, bool | str]) 
 
 
 def build_parser() -> argparse.ArgumentParser:
+    prog = "install-agent.ps1" if plat.is_windows() else "install-agent.sh"
     p = argparse.ArgumentParser(
-        prog="install-agent.sh",
+        prog=prog,
         description="Install your preferred CLI or GUI coding agent and configure it with your custom AI provider.",
     )
     p.add_argument("--agents", help="Comma-separated agent IDs to install (skip interactive menu)")
     p.add_argument("--list", action="store_true", help="List available agents with install status and exit")
     p.add_argument("--dry-run", action="store_true", help="Show install commands without executing them")
-    p.add_argument("--no-configure", action="store_true", help="Skip offering to run configure.sh after installation")
+    p.add_argument("--no-configure", action="store_true", help="Skip offering to configure the provider after installation")
     p.add_argument("--version", action="version", version=f"agent-bridge {__version__}")
     return p
 
@@ -320,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
         "Install CLI & GUI coding agents, then wire them up to your custom API key",
     )
 
-    tools_present = [k for k in ("brew", "npm", "pnpm", "bun", "uv", "pipx", "curl") if env.get(k)]
+    tools_present = [k for k in ("brew", "winget", "scoop", "choco", "npm", "pnpm", "bun", "uv", "pipx", "curl") if env.get(k)]
     ui.info(f"Detected OS: {ui.C.BOLD}{env['os']}{ui.C.RESET} • Package managers: {', '.join(tools_present) or 'none'}")
 
     try:
@@ -387,10 +447,12 @@ def main(argv: list[str] | None = None) -> int:
                 if "shell-env" not in installed_config_targets:
                     installed_config_targets.append("shell-env")
                 cfg_script = REPO_ROOT / "lib" / "configure.py"
-                os.execv(
-                    sys.executable,
-                    [sys.executable, str(cfg_script), "--agents", ",".join(installed_config_targets)],
+                # Launch configure in-process successor; execv works on POSIX and Windows,
+                # but subprocess keeps the return code explicit and works everywhere.
+                proc = subprocess.run(
+                    [sys.executable, str(cfg_script), "--agents", ",".join(installed_config_targets)]
                 )
+                return proc.returncode
 
         return 0
 

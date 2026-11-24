@@ -14,13 +14,15 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from lib import __version__, ui
+from lib import platform_support as plat
 from lib.configurators import AGENTS, AGENT_MAP, BackupManager, run_configurator
 from lib.providers import PROVIDERS, ModelSpec, ResolvedProvider, test_provider_connection
 
 
 def build_parser() -> argparse.ArgumentParser:
+    prog = "configure.ps1" if plat.is_windows() else "configure.sh"
     p = argparse.ArgumentParser(
-        prog="configure.sh",
+        prog=prog,
         description="Configure Metis AI, AvalAI, OpenRouter, Liara, or custom AI providers across CLI & GUI coding agents.",
     )
     p.add_argument("--provider", choices=list(PROVIDERS.keys()), help="Provider preset ID")
@@ -64,7 +66,7 @@ def cmd_list_agents() -> int:
 def cmd_restore() -> int:
     sessions = BackupManager.list_sessions()
     if not sessions:
-        ui.warn("No backups found in ~/.agent-bridge/backups.")
+        ui.warn(f"No backups found in {plat.bridge_dir() / 'backups'}.")
         return 0
     items = [(str(s), s.name, f"Backup directory: {s}") for s in sessions[:15]]
     chosen = ui.select_one("Select a backup session to restore:", items)
@@ -293,7 +295,8 @@ def main(argv: list[str] | None = None) -> int:
         ui.section("Done")
         ui.success(f"Configured {ok_count}/{len(agent_ids)} target(s) for {provider.name}.")
         if not args.dry_run and backups.manifest:
-            ui.info(f"Backups saved to: {backups.session_dir} (restore anytime with `./configure.sh --restore`).")
+            restore_cmd = "configure.ps1 --restore" if plat.is_windows() else "./configure.sh --restore"
+            ui.info(f"Backups saved to: {backups.session_dir} (restore anytime with `{restore_cmd}`).")
         return 0 if ok_count == len(agent_ids) else 1
 
     except KeyboardInterrupt:

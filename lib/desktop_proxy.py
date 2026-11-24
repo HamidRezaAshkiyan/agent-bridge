@@ -23,7 +23,15 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-DEFAULT_CONFIG_PATH = Path.home() / ".agent-bridge" / "proxy.json"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from lib import platform_support as plat
+
+plat.configure_stdio()
+
+DEFAULT_CONFIG_PATH = plat.bridge_dir() / "proxy.json"
 
 
 def load_proxy_config(path: Path) -> dict[str, Any]:

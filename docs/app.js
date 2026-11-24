@@ -141,7 +141,7 @@ const AGENTS = [
   { id: 'goose', name: 'Goose (CLI & Desktop)', category: 'gui', mode: 'Native', path: '~/.config/goose/config.yaml', desc: 'Configures OPENAI_HOST and OPENAI_BASE_PATH cleanly.' },
   { id: 'claude-desktop', name: 'Claude Desktop (GUI)', category: 'desktop', mode: 'Proxy + MCP', path: 'Claude/claude_desktop_config.json', desc: 'Enables Developer Third-Party Inference + MCP custom-model bridge.' },
   { id: 'chatgpt-desktop', name: 'ChatGPT Desktop & Open GUIs', category: 'desktop', mode: 'Proxy + Guide', path: '~/.agent-bridge/proxy.json', desc: 'Local OpenAI proxy + Codex config + Cherry Studio/Chatbox guide.' },
-  { id: 'shell-env', name: 'Shell Environment', category: 'system', mode: 'Native', path: '~/.zshrc / ~/.bashrc', desc: 'Idempotent # >>> agent-bridge >>> block for all SDKs & CLIs.' },
+  { id: 'shell-env', name: 'Shell Environment', category: 'system', mode: 'Native', path: '~/.zshrc / ~/.bashrc ($PROFILE on Windows)', desc: 'Idempotent # >>> agent-bridge >>> block for all SDKs & CLIs.' },
 ];
 
 function getResolvedUrls(p) {

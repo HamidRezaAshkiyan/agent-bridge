@@ -8,8 +8,13 @@ import shutil
 import sys
 from typing import Iterable, Sequence
 
+from lib import platform_support as plat
+
+# Make Windows consoles UTF-8 + ANSI capable before anything is printed.
+plat.configure_stdio()
+
 # Detect ANSI color support
-NO_COLOR = os.environ.get("NO_COLOR") is not None or not sys.stdout.isatty()
+NO_COLOR = not plat.ansi_supported()
 
 
 class C:
@@ -88,8 +93,19 @@ def mask_secret(secret: str) -> str:
     return f"{secret[:4]}{'•' * min(12, len(secret) - 8)}{secret[-4:]}"
 
 
-def _read_key() -> str:
-    """Read a single keypress from stdin (supports arrow keys, space, enter, q)."""
+# Extended key codes returned by msvcrt.getwch() after the \x00/\xe0 prefix.
+_WIN_VK_MAP = {
+    "H": "UP",
+    "P": "DOWN",
+    "M": "RIGHT",
+    "K": "LEFT",
+    "I": "PGUP",
+    "Q": "PGDN",
+}
+
+
+def _read_key_posix() -> str:
+    """Read a single keypress from a POSIX tty (supports arrow keys, space, enter, q)."""
     import termios
     import tty
 
@@ -120,6 +136,50 @@ def _read_key() -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
+def _read_key_windows() -> str:
+    """Read a single keypress on Windows via msvcrt (no external dependency)."""
+    import msvcrt
+
+    ch = msvcrt.getwch()
+    if ch in ("\x00", "\xe0"):
+        # Function/arrow key: the following byte identifies which one.
+        second = msvcrt.getwch()
+        return _WIN_VK_MAP.get(second, "")
+    if ch in ("\r", "\n"):
+        return "ENTER"
+    if ch == " ":
+        return "SPACE"
+    if ch == "\x03":
+        raise KeyboardInterrupt
+    if ch == "\x1b":
+        return "ESC"
+    if ch == "\x08":
+        return "BACKSPACE"
+    return ch
+
+
+def _read_key() -> str:
+    """Read a single keypress from stdin, on any supported OS."""
+    if plat.is_windows():
+        return _read_key_windows()
+    return _read_key_posix()
+
+
+def interactive_keys_supported() -> bool:
+    """True when raw single-key menus can run on this OS."""
+    if plat.is_windows():
+        try:
+            import msvcrt  # noqa: F401
+        except ImportError:
+            return False
+        return is_interactive()
+    try:
+        import termios  # noqa: F401
+    except ImportError:
+        return False
+    return is_interactive()
+
+
 def select_one(
     prompt: str,
     items: Sequence[tuple[str, str, str]],
@@ -133,17 +193,15 @@ def select_one(
     if not items:
         raise ValueError("select_one requires at least one item")
 
-    if not is_interactive():
-        return _select_one_fallback(prompt, items, default_index)
-
-    try:
-        import termios  # noqa: F401
-    except ImportError:
+    if not interactive_keys_supported():
         return _select_one_fallback(prompt, items, default_index)
 
     idx = max(0, min(default_index, len(items) - 1))
     print(f"\n{C.BOLD}{C.WHITE}{prompt}{C.RESET}")
-    print(f"{C.GRAY}  Use ↑/↓ (or j/k) to move, Enter to select, q to cancel{C.RESET}\n")
+    hint = "  Use ↑/↓ (or j/k) to move, Enter to select, q to cancel"
+    if plat.is_windows():
+        hint += " (arrow keys work in Windows Terminal, PowerShell 7 & VS Code)"
+    print(f"{C.GRAY}{hint}{C.RESET}\n")
 
     lines_drawn = 0
 
@@ -219,12 +277,7 @@ def select_many(
 
     selected: set[str] = set(preselected)
 
-    if not is_interactive():
-        return _select_many_fallback(prompt, items, selected)
-
-    try:
-        import termios  # noqa: F401
-    except ImportError:
+    if not interactive_keys_supported():
         return _select_many_fallback(prompt, items, selected)
 
     idx = 0
@@ -333,8 +386,16 @@ def prompt_text(label: str, default: str = "", required: bool = False) -> str:
 def prompt_secret(label: str, default: str = "", allow_empty: bool = False) -> str:
     hint = f" {C.GRAY}[press Enter to keep {mask_secret(default)}]{C.RESET}" if default else ""
     while True:
+        # getpass echoes nothing, but it fails on some Windows consoles (no console
+        # handle when launched from a GUI/headless shell). Fall back to plain input.
+        # Ctrl+C is deliberately not caught here so an abort still propagates.
         if is_interactive():
-            val = getpass.getpass(f"  {C.CYAN}?{C.RESET} {label}{hint}: ").strip()
+            try:
+                val = getpass.getpass(f"  {C.CYAN}?{C.RESET} {label}{hint}: ").strip()
+            except (EOFError, OSError):
+                if not plat.is_windows():
+                    raise
+                val = input(f"  {C.CYAN}?{C.RESET} {label}{hint}: ").strip()
         else:
             val = input(f"  {C.CYAN}?{C.RESET} {label}{hint}: ").strip()
         if not val and default:

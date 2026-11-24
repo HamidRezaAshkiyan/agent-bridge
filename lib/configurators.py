@@ -7,13 +7,13 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
-import platform
 import re
 import shutil
 import sys
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from lib import platform_support as plat
 from lib.providers import ModelSpec, ResolvedProvider
 
 
@@ -64,54 +64,23 @@ def repo_root() -> Path:
 
 
 def os_name() -> str:
-    sys_name = platform.system().lower()
-    if sys_name == "darwin":
-        return "macos"
-    if sys_name == "windows":
-        return "windows"
-    return "linux"
+    return plat.os_name()
 
 
 def vscode_user_dir(insiders: bool = False) -> Path:
-    home = Path.home()
-    folder = "Code - Insiders" if insiders else "Code"
-    sys_os = os_name()
-    if sys_os == "macos":
-        return home / "Library" / "Application Support" / folder / "User"
-    if sys_os == "windows":
-        appdata = Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming")))
-        return appdata / folder / "User"
-    return home / ".config" / folder / "User"
+    return plat.vscode_user_dir(insiders)
 
 
 def cursor_user_dir() -> Path:
-    home = Path.home()
-    sys_os = os_name()
-    if sys_os == "macos":
-        return home / "Library" / "Application Support" / "Cursor" / "User"
-    if sys_os == "windows":
-        appdata = Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming")))
-        return appdata / "Cursor" / "User"
-    return home / ".config" / "Cursor" / "User"
+    return plat.cursor_user_dir()
 
 
 def claude_desktop_dir() -> Path:
-    home = Path.home()
-    sys_os = os_name()
-    if sys_os == "macos":
-        return home / "Library" / "Application Support" / "Claude"
-    if sys_os == "windows":
-        appdata = Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming")))
-        return appdata / "Claude"
-    return home / ".config" / "Claude"
+    return plat.claude_desktop_dir()
 
 
 def detect_shell_rc() -> Path:
-    home = Path.home()
-    shell = os.environ.get("SHELL", "")
-    if "zsh" in shell or (os_name() == "macos" and not (home / ".bashrc").exists()):
-        return home / ".zshrc"
-    return home / ".bashrc"
+    return plat.detect_shell_rc()
 
 
 class BackupManager:
@@ -119,7 +88,7 @@ class BackupManager:
 
     def __init__(self, dry_run: bool = False) -> None:
         self.dry_run = dry_run
-        self.base_dir = Path.home() / ".agent-bridge" / "backups"
+        self.base_dir = plat.bridge_dir() / "backups"
         self.session_id = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.session_dir = self.base_dir / self.session_id
         self.manifest: list[dict[str, str]] = []
@@ -143,7 +112,7 @@ class BackupManager:
 
     @staticmethod
     def list_sessions() -> list[Path]:
-        base = Path.home() / ".agent-bridge" / "backups"
+        base = plat.bridge_dir() / "backups"
         if not base.exists():
             return []
         return sorted([p for p in base.iterdir() if p.is_dir() and (p / "manifest.json").exists()], reverse=True)
@@ -216,8 +185,7 @@ def _ensure_models_list(provider: ResolvedProvider) -> list[ModelSpec]:
 
 
 def _write_proxy_config(provider: ResolvedProvider, backups: BackupManager) -> list[str]:
-    bridge_dir = Path.home() / ".agent-bridge"
-    proxy_cfg_path = bridge_dir / "proxy.json"
+    proxy_cfg_path = plat.bridge_dir() / "proxy.json"
     proxy_data = {
         "provider_id": provider.id,
         "provider_name": provider.name,
@@ -232,15 +200,11 @@ def _write_proxy_config(provider: ResolvedProvider, backups: BackupManager) -> l
     }
     _write_json(proxy_cfg_path, proxy_data, backups)
 
-    launcher_path = bridge_dir / "start-proxy.sh"
+    launcher_path = plat.proxy_launcher_path()
     proxy_script = repo_root() / "lib" / "desktop_proxy.py"
-    launcher = (
-        "#!/usr/bin/env bash\n"
-        "set -euo pipefail\n"
-        f'exec python3 "{proxy_script}" --config "{proxy_cfg_path}" "$@"\n'
-    )
+    launcher = plat.proxy_launcher_content(sys.executable or "python3", proxy_script, proxy_cfg_path)
     _write_text(launcher_path, launcher, backups)
-    if not backups.dry_run and launcher_path.exists():
+    if not plat.is_windows() and not backups.dry_run and launcher_path.exists():
         os.chmod(launcher_path, 0o755)
     return [str(proxy_cfg_path), str(launcher_path)]
 
@@ -253,7 +217,7 @@ def _write_proxy_config(provider: ResolvedProvider, backups: BackupManager) -> l
 def configure_opencode(provider: ResolvedProvider, backups: BackupManager, desktop: bool = False) -> ConfigResult:
     agent_id = "opencode-desktop" if desktop else "opencode-cli"
     agent_name = AGENT_MAP[agent_id].name
-    cfg_path = Path.home() / ".config" / "opencode" / "opencode.json"
+    cfg_path = plat.opencode_config_path()
     data = _read_json_safe(cfg_path, {})
     if not isinstance(data, dict):
         data = {}
@@ -282,7 +246,7 @@ def configure_opencode(provider: ResolvedProvider, backups: BackupManager, deskt
     files = [str(cfg_path)]
 
     # Also store credential in OpenCode's auth.json so OpenCode Desktop (GUI) works without shell env
-    auth_path = Path.home() / ".local" / "share" / "opencode" / "auth.json"
+    auth_path = plat.opencode_auth_path()
     auth_data = _read_json_safe(auth_path, {})
     if not isinstance(auth_data, dict):
         auth_data = {}
@@ -303,7 +267,7 @@ def configure_opencode(provider: ResolvedProvider, backups: BackupManager, deskt
 def configure_claude_code(provider: ResolvedProvider, backups: BackupManager, gui: bool = False) -> ConfigResult:
     agent_id = "claude-code-gui" if gui else "claude-code-cli"
     agent_name = AGENT_MAP[agent_id].name
-    settings_path = Path.home() / ".claude" / "settings.json"
+    settings_path = plat.claude_code_settings_path()
     data = _read_json_safe(settings_path, {})
     if not isinstance(data, dict):
         data = {}
@@ -324,7 +288,7 @@ def configure_claude_code(provider: ResolvedProvider, backups: BackupManager, gu
         notes.append(
             f"{provider.name} is OpenAI-only; Agent Bridge configured the local Anthropic↔OpenAI proxy at `{base_url}`."
         )
-        notes.append("Start the proxy before running Claude Code: `~/.agent-bridge/start-proxy.sh`")
+        notes.append(f"Start the proxy before running Claude Code: `{plat.proxy_start_command()}`")
 
     env_block = data.get("env")
     if not isinstance(env_block, dict):
@@ -362,7 +326,7 @@ def configure_claude_code(provider: ResolvedProvider, backups: BackupManager, gu
 
 
 def configure_pi(provider: ResolvedProvider, backups: BackupManager) -> ConfigResult:
-    pi_dir = Path.home() / ".pi" / "agent"
+    pi_dir = plat.pi_agent_dir()
     models_path = pi_dir / "models.json"
     settings_path = pi_dir / "settings.json"
 
@@ -435,7 +399,7 @@ def configure_cursor(provider: ResolvedProvider, backups: BackupManager) -> Conf
     data[env_key] = term_env
     _write_json(settings_path, data, backups)
 
-    guide_path = Path.home() / ".agent-bridge" / "cursor-setup.txt"
+    guide_path = plat.bridge_dir() / "cursor-setup.txt"
     guide_text = (
         f"Cursor IDE GUI Configuration ({provider.name})\n"
         f"=============================================\n"
@@ -553,7 +517,7 @@ def _upsert_codex_toml(toml_path: Path, provider: ResolvedProvider, backups: Bac
 def configure_codex(provider: ResolvedProvider, backups: BackupManager, desktop: bool = False) -> ConfigResult:
     agent_id = "codex-desktop" if desktop else "codex-cli"
     agent_name = AGENT_MAP[agent_id].name
-    toml_path = Path.home() / ".codex" / "config.toml"
+    toml_path = plat.codex_config_path()
     _upsert_codex_toml(toml_path, provider, backups)
     files = [str(toml_path)]
     notes = [
@@ -562,12 +526,12 @@ def configure_codex(provider: ResolvedProvider, backups: BackupManager, desktop:
     ]
     if desktop:
         files.extend(_write_proxy_config(provider, backups))
-        notes.append("On macOS GUI apps, run `launchctl setenv " + provider.env_var + " <key>` or restart from terminal so Codex Desktop sees the key.")
+        notes.append("Desktop GUI apps inherit env vars from the session that launched them — start Codex Desktop from a terminal with the key exported, or set it as a user environment variable (`setx`).")
     return ConfigResult(agent_id, agent_name, True, files, notes)
 
 
 def configure_aider(provider: ResolvedProvider, backups: BackupManager) -> ConfigResult:
-    conf_path = Path.home() / ".aider.conf.yml"
+    conf_path = plat.aider_config_path()
     body = (
         f"openai-api-base: {provider.openai_base_url}\n"
         f"openai-api-key: {provider.effective_api_key}\n"
@@ -582,7 +546,7 @@ def configure_aider(provider: ResolvedProvider, backups: BackupManager) -> Confi
 
 
 def configure_zed(provider: ResolvedProvider, backups: BackupManager) -> ConfigResult:
-    settings_path = Path.home() / ".config" / "zed" / "settings.json"
+    settings_path = plat.zed_settings_path()
     data = _read_json_safe(settings_path, {})
     if not isinstance(data, dict):
         data = {}
@@ -619,7 +583,7 @@ def configure_zed(provider: ResolvedProvider, backups: BackupManager) -> ConfigR
 
 
 def configure_continue(provider: ResolvedProvider, backups: BackupManager) -> ConfigResult:
-    cfg_path = Path.home() / ".continue" / "config.yaml"
+    cfg_path = plat.continue_config_path()
     models = _ensure_models_list(provider)
     lines = [
         "name: Agent Bridge Config",
@@ -650,7 +614,7 @@ def configure_continue(provider: ResolvedProvider, backups: BackupManager) -> Co
 
 
 def configure_goose(provider: ResolvedProvider, backups: BackupManager) -> ConfigResult:
-    cfg_path = Path.home() / ".config" / "goose" / "config.yaml"
+    cfg_path = plat.goose_config_path()
     parsed = urlparse(provider.openai_base_url)
     host = f"{parsed.scheme}://{parsed.netloc}"
     base_path = (parsed.path.rstrip("/") + "/chat/completions").lstrip("/")
@@ -691,7 +655,7 @@ def configure_claude_desktop(provider: ResolvedProvider, backups: BackupManager)
     if not isinstance(servers, dict):
         servers = {}
     mcp_script = str(repo_root() / "lib" / "mcp_model_bridge.py")
-    proxy_cfg = str(Path.home() / ".agent-bridge" / "proxy.json")
+    proxy_cfg = str(plat.bridge_dir() / "proxy.json")
     servers["agent-bridge-models"] = {
         "command": sys.executable or "python3",
         "args": [mcp_script],
@@ -707,29 +671,29 @@ def configure_claude_desktop(provider: ResolvedProvider, backups: BackupManager)
     notes = [
         "1) MCP Model Bridge registered in `claude_desktop_config.json` (`ask_custom_model`, `list_custom_models`). Restart Claude Desktop to query your custom provider directly in any chat!",
         f"2) Developer Mode enabled (`developer_settings.json`). In Claude Desktop go to Developer -> Configure Third-Party Inference and set Base URL to `{inference_url}`.",
-        "3) If using an OpenAI-only provider or model remapping, run `~/.agent-bridge/start-proxy.sh` to start the local Anthropic↔OpenAI bridge on `http://127.0.0.1:4789`.",
+        f"3) If using an OpenAI-only provider or model remapping, run `{plat.proxy_start_command()}` to start the local Anthropic↔OpenAI bridge on `http://127.0.0.1:4789`.",
     ]
     return ConfigResult("claude-desktop", AGENT_MAP["claude-desktop"].name, True, files, notes)
 
 
 def configure_chatgpt_desktop(provider: ResolvedProvider, backups: BackupManager) -> ConfigResult:
     files = _write_proxy_config(provider, backups)
-    toml_path = Path.home() / ".codex" / "config.toml"
+    toml_path = plat.codex_config_path()
     _upsert_codex_toml(toml_path, provider, backups)
     files.append(str(toml_path))
 
-    guide_path = Path.home() / ".agent-bridge" / "chatgpt-desktop-guide.txt"
+    guide_path = plat.bridge_dir() / "chatgpt-desktop-guide.txt"
     guide = (
         f"ChatGPT Desktop & Custom OpenAI Desktop Setup ({provider.name})\n"
         f"================================================================\n"
         f"Provider Base URL : {provider.openai_base_url}\n"
         f"Default Model     : {provider.model}\n"
-        f"Local Bridge Proxy: http://127.0.0.1:4789/v1  (run ~/.agent-bridge/start-proxy.sh)\n\n"
+        f"Local Bridge Proxy: http://127.0.0.1:4789/v1  (run {plat.proxy_start_command()})\n\n"
         f"Important Note on Consumer ChatGPT Desktop:\n"
         f"- Official consumer ChatGPT Desktop hard-pins chatgpt.com endpoints.\n"
         f"- Developer / Codex Desktop builds read `~/.codex/config.toml` (already configured!).\n"
         f"- For a full native ChatGPT-style Desktop GUI with custom Base URL + API Key, install\n"
-        f"  Cherry Studio, Chatbox, or Jan via `./install-agent.sh` and point it to:\n"
+        f"  Cherry Studio, Chatbox, or Jan via the agent installer and point it to:\n"
         f"    Base URL: {provider.openai_base_url}\n"
         f"    Model   : {provider.model}\n"
     )
@@ -738,28 +702,44 @@ def configure_chatgpt_desktop(provider: ResolvedProvider, backups: BackupManager
 
     notes = [
         "Configured `~/.codex/config.toml` for ChatGPT/Codex developer desktop builds.",
-        "Generated local OpenAI proxy (`~/.agent-bridge/start-proxy.sh`) on `http://127.0.0.1:4789/v1`.",
-        "Note: Standard consumer ChatGPT Desktop pins `chatgpt.com`. For a 100% native custom-API Desktop GUI, install Cherry Studio, Chatbox, or Jan via `./install-agent.sh`.",
+        f"Generated local OpenAI proxy launcher (`{plat.proxy_launcher_path()}`) on `http://127.0.0.1:4789/v1`.",
+        "Note: Standard consumer ChatGPT Desktop pins `chatgpt.com`. For a 100% native custom-API Desktop GUI, install Cherry Studio, Chatbox, or Jan via the agent installer.",
     ]
     return ConfigResult("chatgpt-desktop", AGENT_MAP["chatgpt-desktop"].name, True, files, notes)
 
 
 def configure_shell_env(provider: ResolvedProvider, backups: BackupManager) -> ConfigResult:
     rc_path = detect_shell_rc()
-    lines = [
-        f'export AGENT_BRIDGE_PROVIDER="{provider.id}"',
-        f'export {provider.env_var}="{provider.effective_api_key}"',
-        f'export OPENAI_BASE_URL="{provider.openai_base_url}"',
-        f'export OPENAI_API_KEY="{provider.effective_api_key}"',
-    ]
-    if provider.anthropic_base_url:
-        lines.append(f'export ANTHROPIC_BASE_URL="{provider.anthropic_base_url}"')
-        lines.append(f'export ANTHROPIC_AUTH_TOKEN="{provider.effective_api_key}"')
+    if plat.shell_env_style() == "powershell":
+        lines = [
+            f'$env:AGENT_BRIDGE_PROVIDER = "{provider.id}"',
+            f'$env:{provider.env_var} = "{provider.effective_api_key}"',
+            f'$env:OPENAI_BASE_URL = "{provider.openai_base_url}"',
+            f'$env:OPENAI_API_KEY = "{provider.effective_api_key}"',
+        ]
+        if provider.anthropic_base_url:
+            lines.append(f'$env:ANTHROPIC_BASE_URL = "{provider.anthropic_base_url}"')
+            lines.append(f'$env:ANTHROPIC_AUTH_TOKEN = "{provider.effective_api_key}"')
+        else:
+            # Local proxy handles Anthropic<->OpenAI translation; point Claude tools at it.
+            lines.append('$env:ANTHROPIC_BASE_URL = "http://127.0.0.1:4789"')
+            lines.append(f'$env:ANTHROPIC_AUTH_TOKEN = "{provider.effective_api_key}"')
+        lines.append("Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue")
+    else:
+        lines = [
+            f'export AGENT_BRIDGE_PROVIDER="{provider.id}"',
+            f'export {provider.env_var}="{provider.effective_api_key}"',
+            f'export OPENAI_BASE_URL="{provider.openai_base_url}"',
+            f'export OPENAI_API_KEY="{provider.effective_api_key}"',
+        ]
+        if provider.anthropic_base_url:
+            lines.append(f'export ANTHROPIC_BASE_URL="{provider.anthropic_base_url}"')
+            lines.append(f'export ANTHROPIC_AUTH_TOKEN="{provider.effective_api_key}"')
         lines.append("unset ANTHROPIC_API_KEY")
     _upsert_managed_block(rc_path, "agent-bridge", "\n".join(lines), backups)
     notes = [
         f"Updated managed `# >>> agent-bridge >>>` block in `{rc_path}`.",
-        f"Run `source {rc_path}` (or open a new terminal) to activate.",
+        plat.source_hint(rc_path),
     ]
     return ConfigResult("shell-env", AGENT_MAP["shell-env"].name, True, [str(rc_path)], notes)
 

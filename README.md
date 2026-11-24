@@ -17,7 +17,7 @@
    - Built-in **live API connection & model probe** (`/v1/models`) before writing configs.
    - Automatic **timestamped backups** (`~/.agent-bridge/backups/`) with one-command `--restore`.
 2. **`./install-agent.sh` — Interactive Coding Agent Installer**
-   - Detects your OS (macOS, Linux, WSL) and package managers (`brew`, `npm`, `pnpm`, `bun`, `uv`, `pipx`, `curl`).
+   - Detects your OS (macOS, Linux, Windows, WSL) and package managers (`brew`, `winget`, `npm`, `pnpm`, `bun`, `uv`, `pipx`, `curl`).
    - Shows live installed status for **17 CLI agents, GUI IDEs, and open-source Desktop Chat GUIs**.
    - Installs your chosen tools and immediately offers to launch `./configure.sh` pre-selected with the newly installed agent(s) so you can wire up your API key in seconds.
 3. **Claude Desktop & ChatGPT Desktop Custom API Bridges**
@@ -54,6 +54,38 @@ cd agent-bridge
 # 2. Configure your AI provider & API key across all selected tools
 ./configure.sh
 ```
+
+### Option 3: Windows (PowerShell — no WSL or Git Bash needed)
+
+```powershell
+# Configure your AI provider across your tools
+irm https://raw.githubusercontent.com/HamidRezaAshkiyan/agent-bridge/main/bootstrap.ps1 | iex
+```
+
+```powershell
+# Or clone locally
+git clone https://github.com/HamidRezaAshkiyan/agent-bridge.git
+cd agent-bridge
+
+# 1. (Optional) Install your preferred CLI or GUI coding agent(s)
+.\install-agent.ps1
+
+# 2. Configure your AI provider & API key across all selected tools
+.\configure.ps1
+```
+
+From `cmd.exe` use the provided shims instead: `configure.cmd` / `install-agent.cmd`.
+To run the installer via the bootstrapper (it needs an argument, which `| iex` cannot pass):
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/HamidRezaAshkiyan/agent-bridge/main/bootstrap.ps1))) install
+```
+
+Windows notes:
+- The interactive menus use real arrow keys (Windows Terminal, PowerShell 7, VS Code, Cursor). In legacy consoles they automatically fall back to numbered prompts.
+- `shell-env` writes a managed `# >>> agent-bridge >>>` block to your PowerShell profile (`$PROFILE`) using `$env:` syntax.
+- The local bridge proxy launches via `%USERPROFILE%\.agent-bridge\start-proxy.ps1`.
+- `install-agent.ps1` prefers `winget` and falls back to `npm` / `pipx` / `uv`.
 
 ---
 
@@ -95,7 +127,7 @@ cd agent-bridge
 | `goose` | **Goose (CLI & Desktop)** | CLI + GUI | Native | `~/.config/goose/config.yaml` |
 | `claude-desktop` | **Claude Desktop** | Desktop | Proxy + MCP | `developer_settings.json` + `claude_desktop_config.json` + `proxy.json` |
 | `chatgpt-desktop` | **ChatGPT Desktop & Open GUIs** | Desktop | Proxy + Guide | `~/.codex/config.toml` + `~/.agent-bridge/proxy.json` |
-| `shell-env` | **Shell Environment** | System | Native | Managed `# >>> agent-bridge >>>` block in `~/.zshrc` / `~/.bashrc` |
+| `shell-env` | **Shell Environment** | System | Native | Managed `# >>> agent-bridge >>>` block in `~/.zshrc` / `~/.bashrc` (Windows: `$PROFILE`) |
 
 ---
 
@@ -108,16 +140,19 @@ Agent Bridge sets up **three complementary mechanisms** automatically:
 2. **Developer Mode → Third-Party Inference:**
    Enables `"allowDevTools": true` in `developer_settings.json`. In Claude Desktop, open **Developer → Configure Third-Party Inference...** and enter your Anthropic-compatible Base URL (e.g., `https://api.metisai.ir/anthropic`, `https://api.avalai.ir`, or `http://127.0.0.1:4789` when using our local proxy).
 3. **Local Anthropic ↔ OpenAI Bridge Proxy:**
-   Run `~/.agent-bridge/start-proxy.sh` to start `lib/desktop_proxy.py` on `http://127.0.0.1:4789`. If your provider is OpenAI-only (e.g., Liara, Groq, Together, LM Studio), it automatically translates Anthropic `/v1/messages` calls into OpenAI `/v1/chat/completions`!
+   Run the proxy launcher `~/.agent-bridge/start-proxy.sh` (Windows: `start-proxy.ps1`) to start `lib/desktop_proxy.py` on `http://127.0.0.1:4789`. If your provider is OpenAI-only (e.g., Liara, Groq, Together, LM Studio), it automatically translates Anthropic `/v1/messages` calls into OpenAI `/v1/chat/completions`!
 
 ### ChatGPT Desktop (`--agents chatgpt-desktop`)
 - Official consumer builds of ChatGPT Desktop hard-pin `chatgpt.com` endpoints.
 - Developer / Codex Desktop builds read `~/.codex/config.toml` — Agent Bridge configures `[model_providers.<provider>]` automatically.
-- For a full native ChatGPT-style Desktop GUI with custom Base URL + API Key out of the box, run `./install-agent.sh` to install **Cherry Studio**, **Chatbox**, or **Jan**, and point them to your provider URL or `http://127.0.0.1:4789/v1`.
+- For a full native ChatGPT-style Desktop GUI with custom Base URL + API Key out of the box, run the agent installer (`./install-agent.sh`, or `.\install-agent.ps1` on Windows) to install **Cherry Studio**, **Chatbox**, or **Jan**, and point them to your provider URL or `http://127.0.0.1:4789/v1`.
 
 ---
 
 ## ⚙️ Non-Interactive & Advanced CLI Usage
+
+> On Windows, use `.\configure.ps1` / `.\install-agent.ps1` in place of `./configure.sh` / `./install-agent.sh`.
+> Every flag below is identical on all platforms.
 
 ### Configure Multiple Agents in One Command
 ```bash
@@ -174,16 +209,26 @@ Agent Bridge sets up **three complementary mechanisms** automatically:
 ## 🧪 Running Tests
 
 ```bash
+# macOS / Linux / WSL
 python3 -m unittest discover -s tests -v
 ```
-Tests run against an isolated temporary `$HOME` directory and never touch your real configuration files.
+
+```powershell
+# Windows
+python -m unittest discover -s tests -v
+```
+
+Tests run against an isolated temporary profile (via `AGENT_BRIDGE_USER_HOME`) and never touch your real configuration files.
 
 ---
 
 ## 📋 Requirements
 
-- **macOS, Linux, or Windows (WSL / Git Bash)**
-- **Bash** and **Python 3.8+** (standard library only — zero `pip` or `npm` dependencies required for Agent Bridge itself)
+- **macOS, Linux, or Windows 10/11**
+  - **macOS / Linux**: Bash + `python3`
+  - **Windows**: PowerShell 5.1+ (bundled with Windows 10/11) or PowerShell 7+, plus `py`/`python3`/`python`
+  - WSL and Git Bash continue to work through the Bash entry points
+- **Python 3.9+** (standard library only — zero `pip` or `npm` dependencies required for Agent Bridge itself)
 
 ---
 

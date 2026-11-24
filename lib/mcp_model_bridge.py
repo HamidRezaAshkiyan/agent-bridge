@@ -18,7 +18,15 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-CONFIG_PATH = Path(os.environ.get("AGENT_BRIDGE_MCP_CONFIG", Path.home() / ".agent-bridge" / "proxy.json"))
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from lib import platform_support as plat
+
+plat.configure_stdio()
+
+CONFIG_PATH = Path(os.environ.get("AGENT_BRIDGE_MCP_CONFIG", plat.bridge_dir() / "proxy.json"))
 
 
 def load_cfg() -> dict[str, Any]:
